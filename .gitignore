@@ -1,0 +1,20 @@
+# 构建产物
+.build/
+.swiftpm/
+dist/
+*.dmg
+*.xcodeproj/
+xcuserdata/
+
+# macOS
+.DS_Store
+._*
+
+# 编辑器
+.idea/
+.vscode/
+*.swp
+
+# 本地临时
+tmp/
+*.log
