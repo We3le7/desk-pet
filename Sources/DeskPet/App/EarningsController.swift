@@ -24,6 +24,8 @@ final class EarningsController: ObservableObject {
 
     private var engine: EarningsEngine
     private var tracker = MilestoneTracker()
+    private var lastTickSecond = 0
+    private var lastTotalAtSecond: Double = 0
     private var timer: DispatchSourceTimer?
     private weak var panel: PetPanel?
     private let defaults: UserDefaults
@@ -36,6 +38,8 @@ final class EarningsController: ObservableObject {
         self.config = loaded
         self.engine = EarningsEngine(config: loaded)
         self.amount = engine.amount(at: Date())
+        self.lastTickSecond = Int(Date().timeIntervalSince1970)
+        self.lastTotalAtSecond = self.amount.total
     }
 
     func bind(panel: PetPanel) {
@@ -45,8 +49,10 @@ final class EarningsController: ObservableObject {
     }
 
     func start() {
+        let hz = ProcessInfo.processInfo.environment["DESKPET_LABEL_HZ"].flatMap(Double.init) ?? 5
+        let interval = max(Int(1000.0 / max(hz, 1)), 100)
         let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now(), repeating: .milliseconds(125), leeway: .milliseconds(30))
+        timer.schedule(deadline: .now(), repeating: .milliseconds(interval), leeway: .milliseconds(30))
         timer.setEventHandler { [weak self] in
             self?.recompute(notify: true)
         }
@@ -80,6 +86,22 @@ final class EarningsController: ObservableObject {
         amount = next
         isPaused = next.isPaused
         updateLabel()
+
+        // 每秒一次的跳动特效
+        let second = Int(now.timeIntervalSince1970)
+        if second != lastTickSecond {
+            let delta = next.total - lastTotalAtSecond
+            lastTickSecond = second
+            lastTotalAtSecond = next.total
+            if delta > 0, !next.isPaused, isMoneyVisible,
+               ProcessInfo.processInfo.environment["DESKPET_NO_TICK"] != "1" {
+                panel?.playMoneyTick(delta: delta)
+                if ProcessInfo.processInfo.environment["DESKPET_DEBUG"] == "1" {
+                    print("[money] +\(String(format: "%.4f", delta)) → \(MoneyFormat.yuan(next.total))")
+                    fflush(stdout)
+                }
+            }
+        }
 
         guard notify, next.total > previous.total + 0.0001 else { return }
         let milestones = tracker.crossed(from: previous.total, to: next.total)

@@ -13,6 +13,17 @@ final class PetDisplayView: NSView {
     let moneyPillLayer = CAShapeLayer()
     let moneyTextLayer = CATextLayer()
     var coinLayers: [CAEmitterLayer] = []
+    /// 每秒 "+¥0.03" 用的复用图层
+    private lazy var floatTextLayer: CATextLayer = {
+        let text = CATextLayer()
+        text.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+        text.fontSize = 11
+        text.foregroundColor = NSColor(calibratedRed: 1.0, green: 0.86, blue: 0.35, alpha: 1).cgColor
+        text.alignmentMode = .center
+        text.contentsScale = 2
+        text.opacity = 0
+        return text
+    }()
     private var moneyLayersReady = false
 
     override init(frame frameRect: NSRect) {
@@ -30,8 +41,16 @@ final class PetDisplayView: NSView {
 
     override func layout() {
         super.layout()
-        vectorView.frame = bounds
-        frameView.frame = bounds
+        // 宠物区在金额区之上，两者不再重叠
+        let moneyHeight = PetPanel.moneyAreaHeight
+        let petArea = CGRect(
+            x: 0,
+            y: moneyHeight,
+            width: bounds.width,
+            height: max(bounds.height - moneyHeight, 1)
+        )
+        vectorView.frame = petArea
+        frameView.frame = petArea
         layoutMoneyLayers()
     }
 
@@ -84,6 +103,10 @@ final class PetDisplayView: NSView {
         }
     }
 
+    func setRotationEnabled(_ enabled: Bool) {
+        frameView.setRotationEnabled(enabled)
+    }
+
     func setMood(_ mood: PetMood) {
         guard mood != currentMood else { return }
         currentMood = mood
@@ -105,6 +128,58 @@ extension PetDisplayView {
         ensureMoneyLayers()
         moneyPillLayer.opacity = visible ? 1 : 0
         moneyTextLayer.opacity = visible ? 1 : 0
+    }
+
+    /// 每秒到账特效：金额脉冲 + 浮起的 +¥0.03。
+    func playMoneyTick(delta: Double) {
+        guard delta > 0, moneyLayersReady else { return }
+
+        // 1) 金额脉冲
+        let pulse = CAKeyframeAnimation(keyPath: "transform.scale")
+        pulse.values = [1.0, 1.08, 1.0]
+        pulse.keyTimes = [0, 0.35, 1]
+        pulse.duration = 0.34
+        pulse.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        moneyTextLayer.add(pulse, forKey: "pulse")
+
+        // 2) 浮起的小票（复用同一层，避免每秒新建图层/重排）
+        let text = floatTextLayer
+        text.string = Self.deltaText(delta)
+        text.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+        text.fontSize = 11
+        text.foregroundColor = NSColor(calibratedRed: 1.0, green: 0.86, blue: 0.35, alpha: 1).cgColor
+        text.alignmentMode = .center
+        text.contentsScale = window?.backingScaleFactor ?? 2
+        let startY = PetPanel.moneyAreaHeight - 6
+        text.frame = CGRect(x: bounds.midX - 40, y: startY, width: 80, height: 14)
+        if text.superlayer == nil { layer?.addSublayer(text) }
+
+        let rise = CAKeyframeAnimation(keyPath: "position.y")
+        rise.values = [startY + 7, startY + 26]
+        rise.duration = 0.95
+        rise.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        let fade = CAKeyframeAnimation(keyPath: "opacity")
+        fade.values = [1.0, 1.0, 0.0]
+        fade.keyTimes = [0, 0.55, 1]
+        fade.duration = 0.95
+        let group = CAAnimationGroup()
+        group.animations = [rise, fade]
+        group.duration = 0.95
+        group.isRemovedOnCompletion = false
+        group.fillMode = .forwards
+        text.add(group, forKey: "float")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak text] in
+            // 只淡出，不销毁：下一拍继续复用
+            text?.opacity = 0
+        }
+    }
+
+    static func deltaText(_ delta: Double) -> String {
+        if delta < 0.1 {
+            return String(format: "+¥%.3f", delta)
+        }
+        return String(format: "+¥%.2f", delta)
     }
 
     /// 里程碑金币：CAEmitterLayer 发射一轮后自动停。

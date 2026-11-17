@@ -178,6 +178,15 @@ func runUISelfCheck() -> Int32 {
         print("  ok   金额标签可见（底部条带 \(labelPixels) 个不透明像素）")
     }
 
+    // 宠物区与金额区不重叠：不写金额时，底部 48pt 应该几乎全透明
+    let bandPixels = renderEmptyMoneyBand()
+    if bandPixels > 200 {
+        print("  FAIL 宠物压到了金额区（底部 \(bandPixels) 个像素）")
+        failures += 1
+    } else {
+        print("  ok   宠物区与金额区不重叠（底部仅 \(bandPixels) 个像素）")
+    }
+
     let settingsPixels = renderSettingsPanel()
     if settingsPixels < 3000 {
         print("  FAIL 设置面板几乎没画出内容（\(settingsPixels)）")
@@ -414,8 +423,9 @@ func pixelStats(of image: CGImage) -> (opaqueRatio: Double, color: (Double, Doub
 @MainActor
 func renderSettingsPanel() -> Int {
     let controller = EarningsController()
-    let hosting = NSHostingView(rootView: SettingsView(controller: controller))
-    let size = CGSize(width: 380, height: 380)
+    let appearance = AppearanceStore()
+    let hosting = NSHostingView(rootView: SettingsView(controller: controller, appearance: appearance))
+    let size = CGSize(width: 380, height: 520)
     hosting.frame = NSRect(origin: .zero, size: size)
     hosting.layoutSubtreeIfNeeded()
 
@@ -443,4 +453,37 @@ func renderSettingsPanel() -> Int {
         if abs(Int(buffer[index + 1]) - backgroundRed) > 12 { differing += 1 }
     }
     return differing
+}
+
+
+/// 不写金额文本时，窗口底部 48pt（金额区）应几乎透明 —— 用来守住"宠物不许压到金额区"。
+@MainActor
+func renderEmptyMoneyBand() -> Int {
+    let size = PetPanel.defaultSize
+    let scale: CGFloat = 2
+    let width = Int(size.width * scale)
+    let height = Int(size.height * scale)
+
+    let view = PetDisplayView(frame: NSRect(origin: .zero, size: size))
+    view.layoutSubtreeIfNeeded()
+
+    guard let context = CGContext(
+        data: nil, width: width, height: height, bitsPerComponent: 8,
+        bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+    ) else { return 0 }
+
+    context.scaleBy(x: scale, y: scale)
+    view.layer?.render(in: context)
+    guard let data = context.data else { return 0 }
+
+    let buffer = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
+    let band = Int(PetPanel.moneyAreaHeight * scale)
+    var opaque = 0
+    for y in (height - band)..<height {
+        for x in 0..<width {
+            if buffer[(y * width + x) * 4] > 12 { opaque += 1 }
+        }
+    }
+    return opaque
 }

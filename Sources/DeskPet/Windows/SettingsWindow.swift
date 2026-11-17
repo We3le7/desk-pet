@@ -5,10 +5,12 @@ import SwiftUI
 @MainActor
 final class SettingsWindowController {
     private let controller: EarningsController
+    private let appearance: AppearanceStore
     private var window: NSWindow?
 
-    init(controller: EarningsController) {
+    init(controller: EarningsController, appearance: AppearanceStore) {
         self.controller = controller
+        self.appearance = appearance
     }
 
     func show() {
@@ -19,8 +21,8 @@ final class SettingsWindowController {
     }
 
     private func makeWindow() -> NSWindow {
-        let hosting = NSHostingView(rootView: SettingsView(controller: controller))
-        hosting.frame = NSRect(x: 0, y: 0, width: 380, height: 380)
+        let hosting = NSHostingView(rootView: SettingsView(controller: controller, appearance: appearance))
+        hosting.frame = NSRect(x: 0, y: 0, width: 380, height: 520)
 
         let window = NSWindow(
             contentRect: hosting.bounds,

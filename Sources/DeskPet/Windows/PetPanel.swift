@@ -3,7 +3,22 @@ import DeskPetCore
 
 /// 桌面悬浮宠物窗口：无边框、透明、置顶、全 Space 可见、永不抢焦点。
 final class PetPanel: NSPanel {
-    static let defaultSize = NSSize(width: 200, height: 260)
+    /// 宠物区基准尺寸（缩放 1× 时）
+    static let basePetSize = NSSize(width: 200, height: 232)
+    /// 底部金额区高度（不随缩放变化，保证金额字号恒定）
+    static let moneyAreaHeight: CGFloat = 48
+    var petScale: CGFloat = 1.0
+    /// 单击（非拖动）宠物时触发，用来唤起设置
+    var onClick: (() -> Void)?
+
+    static func windowSize(forScale scale: CGFloat) -> NSSize {
+        NSSize(
+            width: basePetSize.width * scale,
+            height: basePetSize.height * scale + moneyAreaHeight
+        )
+    }
+
+    static var defaultSize: NSSize { windowSize(forScale: 1.0) }
     private var displayView: PetDisplayView?
     private static let originKey = "pet.panel.origin"
 
@@ -27,6 +42,7 @@ final class PetPanel: NSPanel {
         isReleasedWhenClosed = false
 
         let container = DragContainerView(frame: rect)
+        container.onClick = { [weak self] in self?.onClick?() }
         container.autoresizingMask = [.width, .height]
         container.wantsLayer = true
         container.layer?.backgroundColor = NSColor.clear.cgColor
@@ -137,6 +153,27 @@ final class PetPanel: NSPanel {
         displayView?.setMood(mood)
     }
 
+    /// 调整宠物大小：以底部中心为锚点改变窗口尺寸（金额区高度不变）。
+    func setPetScale(_ scale: CGFloat) {
+        let clamped = min(max(scale, 0.6), 2.0)
+        guard abs(clamped - petScale) > 0.001 else { return }
+        petScale = clamped
+
+        let size = Self.windowSize(forScale: clamped)
+        var frame = self.frame
+        let centerX = frame.midX
+        frame.size = size
+        frame.origin.x = centerX - size.width / 2
+        // 保持底边不动，宠物向上长
+        setFrame(frame, display: true)
+        contentView?.frame = NSRect(origin: .zero, size: size)
+        displayView?.frame = contentView?.bounds ?? .zero
+        displayView?.needsLayout = true
+        displayView?.layoutSubtreeIfNeeded()
+        clampIntoVisibleArea()
+        persistPosition()
+    }
+
     func setPack(_ pack: PetPack?) {
         displayView?.setPack(pack)
     }
@@ -147,6 +184,14 @@ final class PetPanel: NSPanel {
 
     func setMoneyVisible(_ visible: Bool) {
         displayView?.setMoneyVisible(visible)
+    }
+
+    func setRotationEnabled(_ enabled: Bool) {
+        displayView?.setRotationEnabled(enabled)
+    }
+
+    func playMoneyTick(delta: Double) {
+        displayView?.playMoneyTick(delta: delta)
     }
 
     func burstCoins(isBig: Bool) {
@@ -206,6 +251,8 @@ final class DragContainerView: NSView {
     private var mouseDownLocation: NSPoint = .zero
     private var windowOriginAtMouseDown: NSPoint = .zero
     private var didDrag = false
+    /// 单击（没有拖动）时触发
+    var onClick: (() -> Void)?
 
     /// 让所有点击都落到容器上，避免被 NSHostingView 吃掉。
     override func hitTest(_ point: NSPoint) -> NSView? { self }
@@ -230,9 +277,12 @@ final class DragContainerView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         guard let panel = window as? PetPanel else { return }
-        panel.snapToNearestEdge()
-        panel.persistPosition()
-        _ = didDrag
+        if didDrag {
+            panel.snapToNearestEdge()
+            panel.persistPosition()
+        } else {
+            onClick?()
+        }
     }
 
     override func rightMouseDown(with event: NSEvent) {

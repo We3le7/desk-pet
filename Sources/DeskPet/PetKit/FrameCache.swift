@@ -154,21 +154,15 @@ final class FrameCache {
     nonisolated private static func decodeImage(_ ref: PetFrameRef, sheet: CGImage?, maxPixel: Int) -> CGImage? {
         switch ref {
         case .file(let url):
-            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-            let options: [CFString: Any] = [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: maxPixel,
-                // 不要 ShouldCacheImmediately：那会把整张原图（512×683）也留在 ImageIO 缓存里，
-                // 26 帧就会多占几十 MB。
-                kCGImageSourceShouldCache: false,
-            ]
-            guard let thumb = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-                return nil
-            }
-            // 关键：缩略图可能仍引用原图那 512×683 的缓冲（26 帧就是 36MB）。
-            // 重画到自有 bitmap，确保每帧只占目标尺寸的内存。
-            return materialize(thumb)
+            // 不用 thumbnail API：它会把整张原图留在 ImageIO 缓存里（实测单轨就 80MB）。
+            // 改为自己解一张原图、立刻重画到目标尺寸，再丢掉原图。
+            let sourceOptions: [CFString: Any] = [kCGImageSourceShouldCache: false]
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary),
+                  let full = CGImageSourceCreateImageAtIndex(
+                    source, 0, [kCGImageSourceShouldCache: false] as CFDictionary
+                  )
+            else { return nil }
+            return downsample(full, maxPixel: maxPixel)
 
         case .cell(let row, let column):
             guard let sheet else { return nil }
@@ -181,6 +175,29 @@ final class FrameCache {
             )
             return sheet.cropping(to: rect)
         }
+    }
+
+    /// 等比缩放到目标尺寸并重画进自有 bitmap。
+    nonisolated private static func downsample(_ image: CGImage, maxPixel: Int) -> CGImage? {
+        let width = image.width
+        let height = image.height
+        guard width > 0, height > 0 else { return nil }
+        let ratio = min(Double(maxPixel) / Double(max(width, height)), 1.0)
+        let targetWidth = max(Int(Double(width) * ratio), 1)
+        let targetHeight = max(Int(Double(height) * ratio), 1)
+
+        guard let context = CGContext(
+            data: nil,
+            width: targetWidth,
+            height: targetHeight,
+            bitsPerComponent: 8,
+            bytesPerRow: targetWidth * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        context.interpolationQuality = .high
+        context.draw(image, in: CGRect(x: 0, y: 0, width: targetWidth, height: targetHeight))
+        return context.makeImage()
     }
 
     /// 把图像重画进一块紧凑的 bitmap，切断对原始解码缓冲的引用。

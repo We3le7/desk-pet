@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var earnings: EarningsController?
     private var settingsWindow: SettingsWindowController?
     private var hotKey: HotKeyManager?
+    private let appearance = AppearanceStore()
     private static let selectedPackKey = "pet.selected.id"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -41,8 +42,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.earnings = earnings
         earnings.start()
 
-        let settingsWindow = SettingsWindowController(controller: earnings)
+        let settingsWindow = SettingsWindowController(controller: earnings, appearance: appearance)
         self.settingsWindow = settingsWindow
+
+        // 外观：宠物大小与轮播
+        panel.setPetScale(appearance.petScale)
+        panel.setRotationEnabled(appearance.rotateActions)
+        appearance.onScaleChange = { [weak panel] scale in
+            panel?.setPetScale(scale)
+        }
+        appearance.onRotationChange = { [weak panel] enabled in
+            panel?.setRotationEnabled(enabled)
+        }
+
+        // 单击宠物 = 打开设置（与菜单栏入口一致）
+        panel.onClick = { [weak settingsWindow] in
+            settingsWindow?.show()
+        }
 
         statusBar.onTogglePause = { [weak earnings] in earnings?.togglePause() }
         statusBar.onToggleMoney = { [weak earnings] in earnings?.toggleMoneyVisibility() }

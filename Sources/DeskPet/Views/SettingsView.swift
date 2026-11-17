@@ -4,6 +4,7 @@ import DeskPetCore
 /// 设置面板：薪资、工时、暂停与金额显示。
 struct SettingsView: View {
     @ObservedObject var controller: EarningsController
+    @ObservedObject var appearance: AppearanceStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -36,6 +37,34 @@ struct SettingsView: View {
 
             Divider()
 
+            Text("宠物")
+                .font(.system(size: 13, weight: .semibold))
+
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
+                row("大小", unit: String(format: "%.0f%%", appearance.petScale * 100)) {
+                    Slider(
+                        value: Binding(
+                            get: { appearance.petScale },
+                            set: { appearance.petScale = $0 }
+                        ),
+                        in: 0.6...2.0,
+                        step: 0.05
+                    )
+                    .frame(width: 170)
+                }
+                GridRow {
+                    Text("空闲轮播").font(.system(size: 12)).foregroundColor(.secondary)
+                        .frame(width: 88, alignment: .leading)
+                    Toggle("空闲时轮播不同动作", isOn: Binding(
+                        get: { appearance.rotateActions },
+                        set: { appearance.rotateActions = $0 }
+                    ))
+                    .toggleStyle(.checkbox)
+                }
+            }
+
+            Divider()
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(controller.config.summary)
                     .font(.system(size: 12).monospacedDigit())
@@ -62,7 +91,7 @@ struct SettingsView: View {
             Spacer(minLength: 0)
         }
         .padding(18)
-        .frame(width: 380)
+        .frame(width: 380, height: 520)
     }
 
     // MARK: - 组件
