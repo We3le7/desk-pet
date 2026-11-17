@@ -24,6 +24,8 @@
 - **MUST** 改动行为时同步更新 `Sources/DeskPetSelfTest` 的断言。
 - **MUST** 修改 `docs/TECH_PLAN.md` 里的"环境事实"时，先在本机复验，不凭记忆写。
 - **MUST NOT** 用 SwiftUI `TimelineView` + `Canvas` 之类**逐帧重绘**的方式渲染常驻 UI：实测 7.6% CPU。持续动画一律用 Core Animation（`CALayer` + `CABasicAnimation`/`CAKeyframeAnimation`），改完跑 `make perf` 复测，目标 CPU < 1%。
+- **MUST** 限制 `NSStatusItem.button.title` 的更新频率（纯按时间节流 ≥5s）：每次更新约 18ms，1Hz 更新会让 CPU 从 0.2% 涨到 2%。
+- **MUST NOT** 在高频路径里用 `String(format: "%s", swiftString)`：`%s` 只接受 C 字符串，传 Swift `String` 会段错误；用 `%@`。
 - **MUST** 改完渲染相关代码跑 `make ui-check`（离屏渲染自检：不透明像素数 + 情绪配色差异），因为 Agent 看不到屏幕。
 - 宠物包格式变更 **MUST** 同步更新 `docs/PETPACK_SPEC.md` 与 `schemaVersion`。
 

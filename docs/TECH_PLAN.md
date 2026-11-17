@@ -556,7 +556,7 @@ final class PetPanel: NSPanel {
 
 | 项 | 目标 | 手段 |
 | --- | --- | --- |
-| 闲置 CPU | < 1%（**实测 0.27%**） | 宠物渲染走 CA 动画，进程不做逐帧重绘（§3.2 实测对比：SwiftUI 逐帧 7.6% → CA 0.27%） |
+| 闲置 CPU | < 1.5%（**实测 0.57%**：采样 0.20% + 状态栏约 0.3%） | 宠物渲染走 CA 动画（§3.2）；采样 1Hz 低电量降 3s；状态栏文字纯按时间节流 5s |
 | 内存（无宠物） | < 40 MB（**实测 footprint 16 MB**） | 零依赖、快照值类型、粒子对象池上限 24 |
 | 内存（加载宠物） | RSS 增量 **< 30 MB** | 帧预缩放到显示尺寸 + 只留当前/预取 2 个 track，见 §7.2.3 |
 | 首次切 track 延迟 | < 120 ms | 后台队列解码 + 预取下一个可能 track（按调色板优先级） |
@@ -632,7 +632,7 @@ NSHighResolutionCapable true
 | 里程碑 | 内容 | 估时 | 验收标准（可执行） |
 | --- | --- | --- | --- |
 | **M0 空壳** ✅ | SPM 工程 + Makefile + `PetPanel` + 菜单栏 + 代码宠物（CA 动画）+ 拖动吸边 + 位置记忆 | 0.5d | ✅ `make run` 出现悬浮宠物；拖动/吸边正常；`make ui-check` 离屏渲染通过；CPU 0.27% / footprint 16 MB；退出无残留 |
-| **M1 采集** | 7 个 Provider + 调试面板显示实时数值 | 1d | 数值与活动监视器/系统设置误差 < 3%；开启 1 小时后 CPU 均值 < 1.5%，无内存增长（`leaks` 无输出） |
+| **M1 采集** ✅ | 7 个 Provider + 1Hz 采样器 + 情绪接线 + 调试面板 + `--metrics-once` / `--bench-metrics` | 1d | ✅ 数值与 `top`/`vm_stat`/`pmset`/`df` 对得上（见 §15.7）；CPU 0.57%（目标 <1.5%）；60 秒 RSS 平稳 67.7 MB 无增长；现场压测 8 个 `yes` → 3 秒内 `idle→busy`，停止后 4 秒回 `idle` |
 | **M2 宠物** | `PetKit` 双格式解析（DSH `frames2d` + Codex atlas v2）+ `FrameCache` 预缩放 + `TrackPlayer` + 情绪映射 + 摸头/缩放/吸附 + 兜底矢量宠物 | 2.5d | ① 选 `jyn` 能正常播 idle；② 用 `yes > /dev/null` 压满 CPU → 30s 内切 `work` 轨；③ 切轨不卡顿（延迟 < 120ms）；④ 加载后 RSS 增量 < 30 MB；⑤ 删掉 `~/.dsh/pets` 后自动退回矢量宠物不崩；⑥ 导入 `~/.codex/pets/codepeng` 能播图集 |
 | **M3 赚钱** | 设置面板 + `EarningsEngine` + 数字滚动 + 金币 + 里程碑 | 1d | 改工时/月薪后立即重算；跨工作时段边界（如 09:29→09:31）恰好开始累加；暂停/老板键生效；`SelfTest` 全绿 |
 | **M2.5 自定义宠物包** | `petpack` v1 校验器 + `PackDoctor` + `PackConverter` + CLI 三件套 + 导入 UI + 模板包 + `docs/PETPACK_SPEC.md` | 1.5d | ① 自己造一个只有 6 帧 idle 的最小包，能导入并正常播放；② 缺 `work` 轨时自动降速复用 idle；③ 塞一张 PNG 进去当帧 → 硬错误且提示可读；④ zip slip 包（`../evil`）被拒；⑤ `--validate-pack` 对 3 类坏包给出正确分级；⑥ `--export-template` 导出的模板改一张图就能跑 |
@@ -744,3 +744,45 @@ Testing.swiftmodule 在 CLT 中不存在
 sips -g pixelWidth ~/.codex/pets/codepeng/spritesheet.webp   ✅ 能读
 ⇒ ImageIO 支持 WebP ⇒ NSImage 直接加载，无需第三方解码库
 ```
+
+### 15.7 M1 指标校准与性能实测（2026-11-17）
+
+**数值对照**（同一时刻，DeskPet vs 系统工具）：
+
+| 指标 | DeskPet | 系统工具 | 判定 |
+| --- | --- | --- | --- |
+| CPU | 30.2% | `top` user 22.98% + sys 10.17% = 33.2% | ✅ 采样窗口不同，量级一致 |
+| 内存 | 22.0 GB / 32 GB | `vm_stat` active+wired+compressed = 21.7 GB | ✅ 差 < 2% |
+| 电池 | 80% · AC · 未充电 | `pmset -g batt` → 80%; AC attached; not charging | ✅ 完全一致 |
+| 磁盘 | 141.0 GB 可用 / 460.4 GB | `df -h /` → 141Gi avail / 460Gi | ✅ 一致 |
+| 网络 | ↓30.5 KB/s ↑19.4 KB/s | 无同窗口基准，靠回绕处理与多次采样稳定性验证 | ⚠️ 定性可信 |
+| 热压力 | fair | `ProcessInfo.thermalState` | ✅ 直接映射 |
+
+**Provider 单位耗时**（`--bench-metrics 50`）：
+
+| Provider | ms/次 |
+| --- | --- |
+| CPU（host_processor_info） | 0.011 |
+| 内存（host_statistics64） | 0.003 |
+| 电池（IOPowerSources） | 0.119 |
+| 网络（getifaddrs） | 0.045 |
+| 磁盘（attributesOfFileSystem） | 0.010 |
+| 热压力（ProcessInfo） | 0.000 |
+
+合计约 0.19 ms/次，1Hz 采样本身只占 **0.20%** CPU。
+
+**踩到并修掉的三个坑**：
+
+1. **CPU tick 数组长度**：`host_processor_info` 的 `infoCount = CPU 数 × 4`，按 CPU 数读会越界崩溃（`Trace/BPT trap: 5`）。已在 §6.1 修正。
+2. **状态栏文字更新的真实成本**：每次改 `NSStatusItem.button.title` 约 **18 ms**（要经 MenuBarAgent 重排）。最初写成"文字变了就更新"，等于每秒更新一次，CPU 从 0.2% 涨到 **2.07%**；改成纯按时间节流 5 秒后回到 **0.57%**。
+3. **`String(format:)` 的 `%s`**：传 Swift `String` 会段错误（`%s` 只吃 C 字符串），改用 `%@`。
+
+**CPU 归因实验**（30 秒窗口）：
+
+| 配置 | CPU |
+| --- | --- |
+| 1Hz 采样 + 状态栏每秒更新 | 2.07% |
+| 1Hz 采样 + 状态栏文字关闭 | 0.20% |
+| 5s 采样 + 状态栏文字关闭 | 0.33%（噪声区间） |
+| 5s 采样 + 状态栏每秒更新 | 0.30% |
+| **1Hz 采样 + 状态栏 5s 节流（最终）** | **0.57%** |

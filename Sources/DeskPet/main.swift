@@ -9,6 +9,20 @@ if arguments.contains("--version") {
     exit(0)
 }
 
+// 各 Provider 耗时基准（优化采样频率用）
+if let index = arguments.firstIndex(of: "--bench-metrics") {
+    let iterations = arguments.count > index + 1 ? (Int(arguments[index + 1]) ?? 20) : 20
+    let filter = arguments.count > index + 2 ? arguments[index + 2] : nil
+    runMetricsBench(iterations: iterations, filter: filter)
+    exit(0)
+}
+
+// 采一次指标并打印（用于与 top / vm_stat / pmset 对数）
+if arguments.contains("--metrics-once") {
+    printMetricsOnce()
+    exit(0)
+}
+
 // 离屏渲染自检：确认宠物图层真的画出了像素（当前模型无法看图，用像素统计代替肉眼）
 if arguments.contains("--self-check-ui") {
     exit(runUISelfCheck())
@@ -28,6 +42,8 @@ if arguments.contains("--help") || arguments.contains("-h") {
       DeskPet --convert ...            图集转逐帧
       DeskPet --export-template <dir>  导出宠物模板
       DeskPet --self-check-ui          离屏渲染自检（开发用）
+      DeskPet --metrics-once           采一次系统指标并打印（开发/校验用）
+      DeskPet --bench-metrics [n]      各 Provider 耗时基准（开发用）
     """)
     exit(0)
 }
@@ -42,6 +58,7 @@ app.run()
 // MARK: - 离屏渲染自检
 
 /// 把宠物视图渲染到 bitmap，统计不透明像素与平均色，验证「画了东西」且「情绪影响配色」。
+@MainActor
 func runUISelfCheck() -> Int32 {
     func render(mood: PetMood) -> (opaque: Int, color: (Double, Double, Double)) {
         let size = CGSize(width: 240, height: 300)
@@ -109,4 +126,68 @@ func runUISelfCheck() -> Int32 {
 
     print(failures == 0 ? "自检通过" : "自检失败")
     return failures == 0 ? 0 : 1
+}
+
+
+// MARK: - 单次采样打印
+
+func printMetricsOnce() {
+    let sampler = MetricsSampler { _ in }
+    let snapshot = sampler.sampleOnce()
+
+    let formatter = DateFormatter()
+    formatter.dateFormat = "HH:mm:ss"
+    print("DeskPet 指标快照  \(formatter.string(from: snapshot.timestamp))")
+    print("  CPU        \(Humanize.precisePercent(snapshot.cpuUsage))")
+    print("  内存       \(Humanize.bytes(snapshot.memoryUsedBytes)) / \(Humanize.bytes(snapshot.memoryTotalBytes))"
+          + "  压力 \(Humanize.percent(snapshot.memoryPressure))")
+    print("  电池       \(snapshot.batteryLevel.map(Humanize.percent) ?? "无电池")"
+          + "  充电:\(snapshot.isCharging ? "是" : "否")  电源:\(snapshot.isOnAC ? "AC" : "电池")")
+    print("  网络       ↓ \(Humanize.rate(snapshot.downloadBytesPerSecond))  ↑ \(Humanize.rate(snapshot.uploadBytesPerSecond))")
+    print("  磁盘       \(Humanize.bytes(snapshot.diskFreeBytes)) 可用 / \(Humanize.bytes(snapshot.diskTotalBytes))")
+    print("  热压力     \(snapshot.thermal)  低电量模式:\(snapshot.isLowPowerMode ? "开" : "关")")
+    print("")
+    print("RAW cpu=\(String(format: "%.4f", snapshot.cpuUsage))"
+          + " mem_used=\(snapshot.memoryUsedBytes)"
+          + " mem_total=\(snapshot.memoryTotalBytes)"
+          + " pressure=\(String(format: "%.4f", snapshot.memoryPressure))"
+          + " battery=\(snapshot.batteryLevel.map { String(format: "%.3f", $0) } ?? "nil")"
+          + " charging=\(snapshot.isCharging)"
+          + " ac=\(snapshot.isOnAC)"
+          + " rx=\(Int(snapshot.downloadBytesPerSecond))"
+          + " tx=\(Int(snapshot.uploadBytesPerSecond))"
+          + " disk_free=\(snapshot.diskFreeBytes)"
+          + " disk_total=\(snapshot.diskTotalBytes)")
+}
+
+
+// MARK: - Provider 耗时基准
+
+func runMetricsBench(iterations: Int, filter: String? = nil) {
+    func measure(_ label: String, _ body: () -> Void) {
+        // 预热一次，避免首调用开销影响
+        body()
+        let start = DispatchTime.now().uptimeNanoseconds
+        for _ in 0..<iterations { body() }
+        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+        let perCall = elapsed / Double(iterations)
+        print(String(format: "  %@ %7.3f ms/次", label.padding(toLength: 8, withPad: " ", startingAt: 0), perCall))
+    }
+
+    print("Provider 耗时基准（\(iterations) 次）")
+    var cpu = CPUProvider()
+    let memory = MemoryProvider()
+    let battery = BatteryProvider()
+    var network = NetworkProvider()
+    let disk = DiskProvider()
+    let thermal = ThermalProvider()
+
+    let names = ["CPU", "内存", "电池", "网络", "磁盘", "热压力"]
+    if filter == nil || filter == "CPU" { measure("CPU") { _ = cpu.sample() } }
+    if filter == nil || filter == "内存" { measure("内存") { _ = memory.sample() } }
+    if filter == nil || filter == "电池" { measure("电池") { _ = battery.sample() } }
+    if filter == nil || filter == "网络" { measure("网络") { _ = network.sample() } }
+    if filter == nil || filter == "磁盘" { measure("磁盘") { _ = disk.sample() } }
+    if filter == nil || filter == "热压力" { measure("热压力") { _ = thermal.sample() } }
+    _ = names
 }

@@ -70,6 +70,55 @@ expectEqual(night.mood(for: MoodSignal(cpu: 0.05, hour: 8)), .idle, "8 点清醒
 var deskTop = MoodRules()
 expectEqual(deskTop.mood(for: MoodSignal(cpu: 0.05, batteryLevel: nil, hour: 12)), .idle, "无电池设备不受低电影响")
 
+// MARK: - Humanize
+
+print("Humanize")
+
+expectEqual(Humanize.bytes(512), "512 B", "字节格式化：小于 1KB")
+expectEqual(Humanize.bytes(1536), "1.5 KB", "字节格式化：KB")
+expectEqual(Humanize.bytes(3 * 1024 * 1024), "3.0 MB", "字节格式化：MB")
+expectEqual(Humanize.bytes(3 * 1024 * 1024 * 1024), "3.0 GB", "字节格式化：GB")
+expectEqual(Humanize.rate(0), "0 B/s", "速率为 0")
+expectEqual(Humanize.rate(2048), "2.0 KB/s", "速率格式化")
+expectEqual(Humanize.percent(0.423), "42%", "百分比取整")
+expectEqual(Humanize.precisePercent(0.4231), "42.3%", "百分比一位小数")
+expectEqual(Humanize.percent(1.4), "100%", "百分比上限截断")
+expectEqual(Humanize.percent(-0.2), "0%", "百分比下限截断")
+
+// MARK: - WorkSchedule
+
+print("WorkSchedule")
+
+var calendar = Calendar(identifier: .gregorian)
+calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+
+@MainActor
+func date(_ year: Int, _ month: Int, _ day: Int, _ hour: Int, _ minute: Int) -> Date {
+    var components = DateComponents()
+    components.year = year
+    components.month = month
+    components.day = day
+    components.hour = hour
+    components.minute = minute
+    components.timeZone = TimeZone(identifier: "Asia/Shanghai")
+    return calendar.date(from: components)!
+}
+
+let schedule = WorkSchedule()  // 默认 09:30-19:00，周一到周五
+
+expect(schedule.isWorking(at: date(2026, 11, 18, 10, 0), calendar: calendar), "周三 10:00 在工作时段")
+expect(!schedule.isWorking(at: date(2026, 11, 18, 9, 29), calendar: calendar), "周三 09:29 还没上班")
+expect(schedule.isWorking(at: date(2026, 11, 18, 9, 30), calendar: calendar), "周三 09:30 整点算上班")
+expect(schedule.isWorking(at: date(2026, 11, 18, 18, 59), calendar: calendar), "周三 18:59 还在上班")
+expect(!schedule.isWorking(at: date(2026, 11, 18, 19, 0), calendar: calendar), "周三 19:00 已下班")
+expect(!schedule.isWorking(at: date(2026, 11, 21, 10, 0), calendar: calendar), "周六 10:00 不上班")
+expect(!schedule.isWorking(at: date(2026, 11, 22, 10, 0), calendar: calendar), "周日 10:00 不上班")
+
+let nightShift = WorkSchedule(startHour: 22, startMinute: 0, endHour: 6, endMinute: 0)
+expect(nightShift.isWorking(at: date(2026, 11, 18, 23, 0), calendar: calendar), "夜班 23:00 在班")
+expect(nightShift.isWorking(at: date(2026, 11, 18, 5, 59), calendar: calendar), "夜班 05:59 在班")
+expect(!nightShift.isWorking(at: date(2026, 11, 18, 6, 0), calendar: calendar), "夜班 06:00 下班")
+
 // MARK: - 汇总
 
 print("")
