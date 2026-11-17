@@ -119,6 +119,71 @@ expect(nightShift.isWorking(at: date(2026, 11, 18, 23, 0), calendar: calendar), 
 expect(nightShift.isWorking(at: date(2026, 11, 18, 5, 59), calendar: calendar), "夜班 05:59 在班")
 expect(!nightShift.isWorking(at: date(2026, 11, 18, 6, 0), calendar: calendar), "夜班 06:00 下班")
 
+// MARK: - 宠物包解析
+
+print("PackParser")
+
+let repoRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+let jynDirectory = repoRoot.appendingPathComponent("Pets/jyn")
+
+if FileManager.default.fileExists(atPath: jynDirectory.path) {
+    do {
+        let pack = try PackParser.parse(directory: jynDirectory)
+        expectEqual(pack.id, "jyn", "解析出 id")
+        expectEqual(pack.adapter, .frames2d, "识别为 frames2d")
+        expect(pack.tracks.count >= 20, "轨道数 \(pack.tracks.count) ≥ 20")
+        expectEqual(pack.license, "MIT", "保留许可信息")
+
+        if let idle = pack.track(named: "idle") {
+            expectEqual(idle.frames.count, 78, "idle 帧数")
+            expectEqual(idle.durationsMs.first, 40, "文件名里的帧时长被解析")
+            if case .file(let url) = idle.frames[0] {
+                expect(url.pathExtension == "webp", "帧指向 webp 文件")
+            } else {
+                expect(false, "frames2d 的帧应为文件引用")
+            }
+        } else {
+            expect(false, "存在 idle 轨道")
+        }
+    } catch {
+        expect(false, "解析 jyn 失败：\(error)")
+    }
+} else {
+    print("  (跳过：仓库里没有 Pets/jyn)")
+}
+
+// 图集包：构造一个最小 manifest 验证行表
+do {
+    let temp = FileManager.default.temporaryDirectory
+        .appendingPathComponent("deskpet-selftest-atlas", isDirectory: true)
+    try? FileManager.default.removeItem(at: temp)
+    try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+    let manifest = #"{"id":"probe","displayName":"探针","spriteVersionNumber":2,"spritesheetPath":"sheet.webp"}"#
+    try manifest.write(to: temp.appendingPathComponent("pet.json"), atomically: true, encoding: .utf8)
+    try Data([0x00]).write(to: temp.appendingPathComponent("sheet.webp"))
+
+    let pack = try PackParser.parse(directory: temp)
+    expectEqual(pack.adapter, .atlas, "识别为图集")
+    expectEqual(pack.tracks.count, 11, "图集 11 行轨道")
+    expectEqual(pack.track(named: "idle")?.frames.count, 6, "idle 行 6 帧")
+    expectEqual(pack.track(named: "idle")?.durationsMs.first, 280, "idle 首帧 280ms")
+    expectEqual(pack.track(named: "waving")?.durationsMs.last, 280, "waving 末帧 280ms")
+    if case .cell(let row, let column) = pack.track(named: "jumping")!.frames[2] {
+        expectEqual(row, 4, "jumping 在第 4 行")
+        expectEqual(column, 2, "第 3 帧列号")
+    } else {
+        expect(false, "图集帧应为 cell 引用")
+    }
+} catch {
+    expect(false, "解析图集探针失败：\(error)")
+}
+
+print("MoodTrackMap")
+expectEqual(MoodTrackMap.candidates(for: .busy, adapter: .frames2d).first, "work", "DSH 忙碌对应 work")
+expectEqual(MoodTrackMap.candidates(for: .busy, adapter: .atlas).first, "running", "图集忙碌对应 running")
+expectEqual(MoodTrackMap.candidates(for: .pet, adapter: .frames2d).first, "shy", "DSH 摸头对应 shy")
+expectEqual(MoodTrackMap.candidates(for: .sleeping, adapter: .atlas).first, "idle", "图集没有睡眠行，退回 idle")
+
 // MARK: - 汇总
 
 print("")

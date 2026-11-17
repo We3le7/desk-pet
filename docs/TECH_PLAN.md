@@ -558,7 +558,7 @@ final class PetPanel: NSPanel {
 | --- | --- | --- |
 | 闲置 CPU | < 1.5%（**实测 0.57%**：采样 0.20% + 状态栏约 0.3%） | 宠物渲染走 CA 动画（§3.2）；采样 1Hz 低电量降 3s；状态栏文字纯按时间节流 5s |
 | 内存（无宠物） | < 40 MB（**实测 footprint 16 MB**） | 零依赖、快照值类型、粒子对象池上限 24 |
-| 内存（加载宠物） | RSS 增量 **< 30 MB** | 帧预缩放到显示尺寸 + 只留当前/预取 2 个 track，见 §7.2.3 |
+| 内存（加载宠物） | 目标 < 30 MB，**实测 +54 MB（未达标）** | 已做预跳帧 + 预缩放 + 单轨缓存；剩余开销来自 ImageIO 解码缓冲与 CA 纹理，见 §15.8 与 M5 跟进项 |
 | 首次切 track 延迟 | < 120 ms | 后台队列解码 + 预取下一个可能 track（按调色板优先级） |
 | 电池 | 低电量模式自动降级 | `isLowPowerModeEnabled` → 采样 3s、动画 8fps、停粒子 |
 | 屏幕睡眠/合盖 | 完全停摆 | 监听 `willSleep`，`DispatchSourceTimer` suspend |
@@ -633,7 +633,7 @@ NSHighResolutionCapable true
 | --- | --- | --- | --- |
 | **M0 空壳** ✅ | SPM 工程 + Makefile + `PetPanel` + 菜单栏 + 代码宠物（CA 动画）+ 拖动吸边 + 位置记忆 | 0.5d | ✅ `make run` 出现悬浮宠物；拖动/吸边正常；`make ui-check` 离屏渲染通过；CPU 0.27% / footprint 16 MB；退出无残留 |
 | **M1 采集** ✅ | 7 个 Provider + 1Hz 采样器 + 情绪接线 + 调试面板 + `--metrics-once` / `--bench-metrics` | 1d | ✅ 数值与 `top`/`vm_stat`/`pmset`/`df` 对得上（见 §15.7）；CPU 0.57%（目标 <1.5%）；60 秒 RSS 平稳 67.7 MB 无增长；现场压测 8 个 `yes` → 3 秒内 `idle→busy`，停止后 4 秒回 `idle` |
-| **M2 宠物** | `PetKit` 双格式解析（DSH `frames2d` + Codex atlas v2）+ `FrameCache` 预缩放 + `TrackPlayer` + 情绪映射 + 摸头/缩放/吸附 + 兜底矢量宠物 | 2.5d | ① 选 `jyn` 能正常播 idle；② 用 `yes > /dev/null` 压满 CPU → 30s 内切 `work` 轨；③ 切轨不卡顿（延迟 < 120ms）；④ 加载后 RSS 增量 < 30 MB；⑤ 删掉 `~/.dsh/pets` 后自动退回矢量宠物不崩；⑥ 导入 `~/.codex/pets/codepeng` 能播图集 |
+| **M2 宠物** ✅ | `PetKit` 双格式解析（DSH `frames2d` + Codex atlas v2）+ `FrameCache` 预跳帧解码 + CA 关键帧播放 + 情绪映射 + 菜单选宠物 + 兜底矢量宠物 | 2.5d | ✅ ① `jyn` 播 idle（26 帧/3120ms）；✅ ② 压测 3 秒切 `work` 轨；✅ ③ 切换命中缓存 0ms、首次解码约 120ms；⚠️ ④ 内存增量约 54 MB（**未达 30 MB 目标**，原因见 §15.8）；✅ ⑤ 无宠物包时退回矢量宠物；✅ ⑥ Codex 图集可播 |
 | **M3 赚钱** | 设置面板 + `EarningsEngine` + 数字滚动 + 金币 + 里程碑 | 1d | 改工时/月薪后立即重算；跨工作时段边界（如 09:29→09:31）恰好开始累加；暂停/老板键生效；`SelfTest` 全绿 |
 | **M2.5 自定义宠物包** | `petpack` v1 校验器 + `PackDoctor` + `PackConverter` + CLI 三件套 + 导入 UI + 模板包 + `docs/PETPACK_SPEC.md` | 1.5d | ① 自己造一个只有 6 帧 idle 的最小包，能导入并正常播放；② 缺 `work` 轨时自动降速复用 idle；③ 塞一张 PNG 进去当帧 → 硬错误且提示可读；④ zip slip 包（`../evil`）被拒；⑤ `--validate-pack` 对 3 类坏包给出正确分级；⑥ `--export-template` 导出的模板改一张图就能跑 |
 | **M4 分发** | icns + DMG + 引导页 + 开机自启 + README | 1d | 断网环境下把 dmg 拷到另一台 Mac，挂载→拖入→右键打开→能跑；重启后自启生效；卸载干净 |
@@ -786,3 +786,36 @@ sips -g pixelWidth ~/.codex/pets/codepeng/spritesheet.webp   ✅ 能读
 | 5s 采样 + 状态栏文字关闭 | 0.33%（噪声区间） |
 | 5s 采样 + 状态栏每秒更新 | 0.30% |
 | **1Hz 采样 + 状态栏 5s 节流（最终）** | **0.57%** |
+
+### 15.8 M2 宠物渲染实测（2026-11-17）
+
+**解析（`--list-pets`，5 个包，0.37s）**
+
+| 包 | 适配器 | 轨道 | 说明 |
+| --- | --- | --- | --- |
+| `jyn` | frames2d | 22 | 逐帧 webp，单帧 512×683，40ms/帧，MIT |
+| `codepeng` / `forgefox` / `trumpchibi` / `xichibi` | atlas | 11 | 1536×2288 图集，8×11，cell 192×208 |
+
+**解码（`--check-pack jyn`）**
+
+| 阶段 | 结果 |
+| --- | --- |
+| 串行解码 78 帧 | 1794 ms |
+| 并行解码（`concurrentPerform`） | **123 ms**（39 帧 @319×426） |
+| Codex 图集 6 帧 | 14 ms |
+
+**播放**：`CAKeyframeAnimation(keyPath: "contents")` + `calculationMode = .discrete`，动画跑在 render server，进程不做逐帧重绘。
+
+**内存归因实验**（footprint，30 秒稳态）
+
+| 配置 | footprint | 说明 |
+| --- | --- | --- |
+| 矢量宠物（无包） | 19 MB | 基线 |
+| 跳过播放（只加载包） | 18 MB | 排除解析开销 |
+| 鲸鱼娘 idle 26 帧 @1.5× | 72–80 MB | 帧数据本身仅 11.6 MB |
+| 预算 8 MB → 16 帧 | 54 MB | 降帧只线性影响 |
+| 预算 4 MB → 3 帧 | 64 MB | **几乎不降，说明主因不是帧数** |
+
+结论：`footprint` 里 Malloc Small 约 40–59 MB、CG Raster 12 MB、CoreAnimation 12 MB。每帧实际占用约 1.5 MB，接近原图 512×683 的未压缩大小 —— 即 **ImageIO 在解码时保留了全尺寸缓冲**，即使已用 `kCGImageSourceShouldCache: false` 并重画进紧凑 bitmap。
+
+**跟进项（M5）**：把逐帧 webp 在导入时转成 **HEVC（带 alpha）视频**，用 `AVPlayerLayer` 播放，内存可降到个位数 MB；或改为按需解码 + 环形缓冲（换 CPU 换内存）。当前保留帧方案，因为它是唯一不改素材、不改格式就能播现有宠物包的做法。

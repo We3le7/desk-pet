@@ -134,7 +134,6 @@ final class PetView: NSView {
         let bounds = self.bounds
         guard bounds.width > 1, bounds.height > 1 else { return }
 
-        let unit = min(bounds.width, bounds.height)
         let bodyCenter = CGPoint(x: bounds.midX, y: bounds.height * 0.56)
         let bodySize = CGSize(width: bounds.width * 0.60, height: bounds.height * 0.46)
 

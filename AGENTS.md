@@ -26,6 +26,7 @@
 - **MUST NOT** 用 SwiftUI `TimelineView` + `Canvas` 之类**逐帧重绘**的方式渲染常驻 UI：实测 7.6% CPU。持续动画一律用 Core Animation（`CALayer` + `CABasicAnimation`/`CAKeyframeAnimation`），改完跑 `make perf` 复测，目标 CPU < 1%。
 - **MUST** 限制 `NSStatusItem.button.title` 的更新频率（纯按时间节流 ≥5s）：每次更新约 18ms，1Hz 更新会让 CPU 从 0.2% 涨到 2%。
 - **MUST NOT** 在高频路径里用 `String(format: "%s", swiftString)`：`%s` 只接受 C 字符串，传 Swift `String` 会段错误；用 `%@`。
+- 宠物帧动画的三个可调参数（环境变量）：`DESKPET_FRAME_BUDGET_MB`（每轨预算，默认 12）、`DESKPET_DECODE_SCALE`（解码倍率系数，默认 0.75×）、`DESKPET_FRAME_MAX_TRACKS`（缓存轨数，默认 2）。改内存策略时先用 `footprint -p <pid>` 归因，别只看 `ps` 的 RSS（含共享缓存，虚高 3-4 倍）。
 - **MUST** 改完渲染相关代码跑 `make ui-check`（离屏渲染自检：不透明像素数 + 情绪配色差异），因为 Agent 看不到屏幕。
 - 宠物包格式变更 **MUST** 同步更新 `docs/PETPACK_SPEC.md` 与 `schemaVersion`。
 

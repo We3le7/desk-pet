@@ -10,6 +10,9 @@ final class StatusBarController: NSObject {
     private var lastTitle: String = ""
     private var lastMood: PetMood?
     var onToggleDebugPanel: (() -> Void)?
+    var onSelectPack: ((String?) -> Void)?
+    private var petMenuItem: NSMenuItem?
+    private var petSubmenu = NSMenu()
 
     init(panel: PetPanel) {
         self.panel = panel
@@ -50,6 +53,12 @@ final class StatusBarController: NSObject {
         menu.addItem(recenter)
 
         menu.addItem(.separator())
+
+        let petItem = NSMenuItem(title: "宠物", action: nil, keyEquivalent: "")
+        petItem.submenu = petSubmenu
+        petMenuItem = petItem
+        menu.addItem(petItem)
+        rebuildPetSubmenu(packs: [], selectedID: nil)
 
         let debug = NSMenuItem(title: "指标面板…", action: #selector(showDebugPanel(_:)), keyEquivalent: "d")
         debug.target = self
@@ -111,6 +120,44 @@ final class StatusBarController: NSObject {
 
     @objc private func resetPosition(_ sender: Any?) {
         panel?.resetPosition(nil)
+    }
+
+    /// 重建宠物列表子菜单。
+    func rebuildPetSubmenu(packs: [PetPackDescriptor], selectedID: String?) {
+        petSubmenu.removeAllItems()
+
+        let builtin = NSMenuItem(title: "内置（代码绘制）", action: #selector(selectPack(_:)), keyEquivalent: "")
+        builtin.target = self
+        builtin.representedObject = ""
+        builtin.state = selectedID == nil ? .on : .off
+        petSubmenu.addItem(builtin)
+
+        guard !packs.isEmpty else {
+            petSubmenu.addItem(.separator())
+            let empty = NSMenuItem(title: "未发现宠物包", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            petSubmenu.addItem(empty)
+            return
+        }
+
+        petSubmenu.addItem(.separator())
+        for pack in packs {
+            let license = pack.detail ?? pack.adapter.rawValue
+            let item = NSMenuItem(
+                title: "\(pack.displayName)（\(pack.id) · \(license)）",
+                action: #selector(selectPack(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = pack.id
+            item.state = selectedID == pack.id ? .on : .off
+            petSubmenu.addItem(item)
+        }
+    }
+
+    @objc private func selectPack(_ sender: NSMenuItem) {
+        let id = sender.representedObject as? String
+        onSelectPack?(id?.isEmpty == true ? nil : id)
     }
 
     @objc private func showDebugPanel(_ sender: Any?) {

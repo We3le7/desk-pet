@@ -9,6 +9,31 @@ if arguments.contains("--version") {
     exit(0)
 }
 
+// 检查某个宠物包：轨道映射 + 首帧解码统计（我看不到屏幕，用像素统计代替肉眼）
+if let index = arguments.firstIndex(of: "--check-pack") {
+    let id = arguments.count > index + 1 ? arguments[index + 1] : "jyn"
+    exit(runPackCheck(id: id))
+}
+
+// 列出本机可用的宠物包
+if arguments.contains("--list-pets") {
+    let library = PetLibrary()
+    let packs = library.discover()
+    if packs.isEmpty {
+        print("未发现宠物包（搜索：~/.dsh/pets、~/.codex/pets、Application Support/DeskPet/pets）")
+    } else {
+        print("发现 \(packs.count) 个宠物包：")
+        for pack in packs {
+            print("  \(pack.id.padding(toLength: 14, withPad: " ", startingAt: 0))"
+                  + " \(pack.adapter.rawValue.padding(toLength: 7, withPad: " ", startingAt: 0))"
+                  + " \(String(format: "%2d", pack.tracks.count)) 轨"
+                  + "  \(pack.displayName)"
+                  + "  [\(pack.license ?? "无许可声明")]")
+        }
+    }
+    exit(0)
+}
+
 // 各 Provider 耗时基准（优化采样频率用）
 if let index = arguments.firstIndex(of: "--bench-metrics") {
     let iterations = arguments.count > index + 1 ? (Int(arguments[index + 1]) ?? 20) : 20
@@ -44,6 +69,8 @@ if arguments.contains("--help") || arguments.contains("-h") {
       DeskPet --self-check-ui          离屏渲染自检（开发用）
       DeskPet --metrics-once           采一次系统指标并打印（开发/校验用）
       DeskPet --bench-metrics [n]      各 Provider 耗时基准（开发用）
+      DeskPet --list-pets              列出本机可用的宠物包
+      DeskPet --check-pack <id>        解码并统计某个宠物包（开发用）
     """)
     exit(0)
 }
@@ -190,4 +217,118 @@ func runMetricsBench(iterations: Int, filter: String? = nil) {
     if filter == nil || filter == "磁盘" { measure("磁盘") { _ = disk.sample() } }
     if filter == nil || filter == "热压力" { measure("热压力") { _ = thermal.sample() } }
     _ = names
+}
+
+
+// MARK: - 宠物包检查
+
+@MainActor
+func runPackCheck(id: String) -> Int32 {
+    guard let pack = PetLibrary().load(id: id) else {
+        print("未找到宠物包：\(id)")
+        return 1
+    }
+
+    print("宠物包 \(pack.id) · \(pack.displayName)")
+    print("  适配器   \(pack.adapter.rawValue)")
+    print("  轨道数   \(pack.tracks.count)")
+    print("  许可     \(pack.license ?? "无声明")  作者 \(pack.author ?? "未知")")
+    print("  路径     \(pack.root.path)")
+    print("")
+    print("情绪 → 轨道映射：")
+
+    var failures = 0
+    for mood in [PetMood.idle, .busy, .sleeping, .pet, .celebrate, .overheat] {
+        let candidates = MoodTrackMap.candidates(for: mood, adapter: pack.adapter)
+        if let track = pack.firstTrack(among: candidates) {
+            let loopText = track.loop ? "循环" : "一次性"
+            print("  \(mood.rawValue.padding(toLength: 10, withPad: " ", startingAt: 0)) → "
+                  + "\(track.name.padding(toLength: 12, withPad: " ", startingAt: 0))"
+                  + "\(String(format: "%3d", track.frames.count)) 帧 "
+                  + "\(track.totalDurationMs) ms  \(loopText)")
+        } else {
+            print("  \(mood.rawValue.padding(toLength: 10, withPad: " ", startingAt: 0)) → 无可用轨道")
+            failures += 1
+        }
+    }
+
+    guard let idle = pack.firstTrack(among: ["idle"]) else {
+        print("\n❌ 没有 idle 轨道")
+        return 1
+    }
+
+    // 按窗口尺寸（240×300 内的 160×213）在 2× 下解码
+    let target = CGSize(width: 160, height: 213)
+    let started = DispatchTime.now().uptimeNanoseconds
+    guard let loaded = FrameCache.inspect(pack: pack, track: idle, targetSize: target, scale: 2) else {
+        print("\n❌ 首帧解码失败")
+        return 1
+    }
+    let elapsedMs = Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000
+
+    print("")
+    print("idle 解码结果：")
+    print("  帧数     \(loaded.frames.count)\(loaded.didSubsample ? "（已按内存预算跳帧采样）" : "")")
+    print("  内存     \(String(format: "%.1f", Double(loaded.bytes) / 1024 / 1024)) MB")
+    print("  耗时     \(String(format: "%.0f", elapsedMs)) ms（含解码全部帧）")
+
+    guard let first = loaded.frames.first else { return 1 }
+    print("  单帧尺寸 \(first.width)×\(first.height) px")
+
+    let stats = pixelStats(of: first)
+    print("  不透明像素 \(String(format: "%.1f", stats.opaqueRatio * 100))%")
+    print("  平均色   RGB(\(Int(stats.color.0)), \(Int(stats.color.1)), \(Int(stats.color.2)))")
+
+    if stats.opaqueRatio < 0.01 {
+        print("\n❌ 几乎全透明，可能解错了文件")
+        failures += 1
+    }
+    if loaded.frames.count < 2 {
+        print("\n⚠️ 帧数少于 2，动画会退化成静态图")
+        failures += 1
+    }
+
+    print(failures == 0 ? "\n✅ 检查通过" : "\n❌ 有 \(failures) 项问题")
+
+    // 诊断用：保持存活，方便从外部看内存构成
+    if let hold = ProcessInfo.processInfo.environment["DESKPET_HOLD_SECONDS"].flatMap(Double.init) {
+        print("(保持 \(Int(hold)) 秒，pid=\(ProcessInfo.processInfo.processIdentifier))")
+        fflush(stdout)
+        Thread.sleep(forTimeInterval: hold)
+    }
+
+    return failures == 0 ? 0 : 1
+}
+
+@MainActor
+func pixelStats(of image: CGImage) -> (opaqueRatio: Double, color: (Double, Double, Double)) {
+    let width = image.width
+    let height = image.height
+    guard let context = CGContext(
+        data: nil,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: width * 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+    ) else { return (0, (0, 0, 0)) }
+
+    context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+    guard let data = context.data else { return (0, (0, 0, 0)) }
+    let buffer = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
+
+    var opaque = 0
+    var sumR = 0.0, sumG = 0.0, sumB = 0.0
+    for index in stride(from: 0, to: width * height * 4, by: 4) {
+        let alpha = Double(buffer[index])
+        guard alpha > 12 else { continue }
+        opaque += 1
+        sumR += Double(buffer[index + 1])
+        sumG += Double(buffer[index + 2])
+        sumB += Double(buffer[index + 3])
+    }
+    guard opaque > 0 else { return (0, (0, 0, 0)) }
+    let count = Double(opaque)
+    return (Double(opaque) / Double(width * height), (sumR / count, sumG / count, sumB / count))
 }

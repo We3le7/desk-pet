@@ -2,7 +2,7 @@
 
 一个常驻 macOS 桌面的小宠物：它读你的 CPU / 内存 / 电池 / 网络状态并做出反应，同时把"上班"这件事换算成**每秒到账多少钱**，用数字滚动和金币动画陪你熬过工时。
 
-> 当前状态：**M1 已完成**（悬浮宠物 + 7 项系统指标 + 情绪联动 + 调试面板），下一步 M2 宠物包渲染。
+> 当前状态：**M2 已完成**（能播真实宠物包：鲸鱼娘 + 4 个 Codex 图集宠物），下一步 M3 上班鼓励器。
 > 设计与规范见 [`docs/TECH_PLAN.md`](docs/TECH_PLAN.md)。
 
 ## 它长什么样
@@ -25,6 +25,8 @@
 
 仓库内附带一只默认宠物 **鲸鱼娘（jyn）**，MIT 许可，来源与归属见 [`NOTICE.md`](NOTICE.md)。
 
+菜单栏 → **宠物** 里可以随时切换；选「内置（代码绘制）」则用代码画的兜底小动物。
+
 ## 开发
 
 ```bash
@@ -35,7 +37,7 @@ make perf      # 采样 30s 的 CPU / 内存
 make dmg       # 产出 dist/DeskPet.dmg
 ```
 
-实测（M5 MacBook Air / macOS 27.3）：闲置 **CPU 0.57%**（1Hz 采样 + 状态栏节流）、内存 footprint **17 MB**、app 包体 180 KB。
+实测（M5 MacBook Air / macOS 27.3）：矢量宠物 **CPU 0.57%**；加载帧动画宠物后内存 footprint 约 **70 MB**（ImageIO 解码缓冲仍在优化，见 `docs/TECH_PLAN.md` §15.8）。（1Hz 采样 + 状态栏节流）、内存 footprint **17 MB**、app 包体 180 KB。
 宠物动画全部走 Core Animation，进程不做逐帧重绘 —— 早期用 SwiftUI 逐帧方案的对比数据见 `docs/TECH_PLAN.md` §3.2。
 
 > 需要 macOS 14+ 与 Command Line Tools（**不需要完整 Xcode**）。

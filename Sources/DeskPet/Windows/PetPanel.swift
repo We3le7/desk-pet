@@ -3,8 +3,8 @@ import DeskPetCore
 
 /// 桌面悬浮宠物窗口：无边框、透明、置顶、全 Space 可见、永不抢焦点。
 final class PetPanel: NSPanel {
-    static let defaultSize = NSSize(width: 240, height: 300)
-    private var petView: PetView?
+    static let defaultSize = NSSize(width: 200, height: 260)
+    private var displayView: PetDisplayView?
     private static let originKey = "pet.panel.origin"
 
     init() {
@@ -31,10 +31,10 @@ final class PetPanel: NSPanel {
         container.wantsLayer = true
         container.layer?.backgroundColor = NSColor.clear.cgColor
 
-        let pet = PetView(frame: container.bounds)
-        pet.autoresizingMask = [.width, .height]
-        container.addSubview(pet)
-        petView = pet
+        let display = PetDisplayView(frame: container.bounds)
+        display.autoresizingMask = [.width, .height]
+        container.addSubview(display)
+        displayView = display
 
         contentView = container
         applyRestoredPosition()
@@ -134,7 +134,11 @@ final class PetPanel: NSPanel {
     // MARK: - 情绪
 
     func updateMood(_ mood: PetMood) {
-        petView?.mood = mood
+        displayView?.setMood(mood)
+    }
+
+    func setPack(_ pack: PetPack?) {
+        displayView?.setPack(pack)
     }
 
     // MARK: - 交互动作
