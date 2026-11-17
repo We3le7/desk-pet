@@ -187,19 +187,40 @@ func runUISelfCheck() -> Int32 {
         print("  ok   宠物区与金额区不重叠（底部仅 \(bandPixels) 个像素）")
     }
 
-    let settingsInfo = renderSettingsPanel()
-    if settingsInfo.pixels < 3000 {
-        print("  FAIL 设置面板几乎没画出内容（\(settingsInfo.pixels)）")
+    let earningsTab = renderSettingsPanel(tab: .earnings)
+    if earningsTab.pixels < 3000 {
+        print("  FAIL 设置面板「上班鼓励器」几乎没画出内容（\(earningsTab.pixels)）")
         failures += 1
     } else {
-        print("  ok   设置面板可渲染（\(settingsInfo.pixels) 个不透明像素）")
+        print("  ok   设置面板「上班鼓励器」可渲染（\(earningsTab.pixels) 个不透明像素）")
     }
 
     // 时间选择器：上班/下班各一组，每组小时 24 项 + 分钟 12 项
-    if settingsInfo.comboItemCounts.sorted() == [12, 12, 24, 24] {
-        print("  ok   时间选择器就位（\(settingsInfo.comboItemCounts.sorted()) 项）")
+    if earningsTab.comboItemCounts.sorted() == [12, 12, 24, 24] {
+        print("  ok   时间选择器就位（\(earningsTab.comboItemCounts.sorted()) 项）")
     } else {
-        print("  FAIL 时间选择器异常（发现 \(settingsInfo.comboItemCounts)）")
+        print("  FAIL 时间选择器异常（发现 \(earningsTab.comboItemCounts)）")
+        failures += 1
+    }
+
+    // 宠物标签页：显示开关 / 大小滑杆 / 皮肤列表
+    let petTab = renderSettingsPanel(tab: .pet)
+    if petTab.pixels < 3000 {
+        print("  FAIL 设置面板「宠物」几乎没画出内容（\(petTab.pixels)）")
+        failures += 1
+    } else {
+        print("  ok   设置面板「宠物」可渲染（\(petTab.pixels) 个不透明像素）")
+    }
+    if petTab.sliderCount >= 1 {
+        print("  ok   宠物标签页含大小滑杆（\(petTab.sliderCount) 个）")
+    } else {
+        print("  FAIL 宠物标签页缺少大小滑杆")
+        failures += 1
+    }
+    if petTab.packRowCount >= 2 {
+        print("  ok   皮肤列表就位（\(petTab.packRowCount) 行，含内置宠物）")
+    } else {
+        print("  FAIL 皮肤列表为空（\(petTab.packRowCount) 行）")
         failures += 1
     }
 
@@ -429,11 +450,24 @@ func pixelStats(of image: CGImage) -> (opaqueRatio: Double, color: (Double, Doub
 
 /// 离屏渲染设置面板，确认表单能正常布局出内容。
 @MainActor
-func renderSettingsPanel() -> (pixels: Int, comboItemCounts: [Int]) {
+func renderSettingsPanel(tab: SettingsTab) -> (pixels: Int, comboItemCounts: [Int], sliderCount: Int, packRowCount: Int) {
     let controller = EarningsController()
     let appearance = AppearanceStore()
-    let hosting = NSHostingView(rootView: SettingsView(controller: controller, appearance: appearance))
-    let size = CGSize(width: 400, height: 620)
+    let catalog = PetsCatalog()
+    if tab == .pet {
+        // 让宠物包列表真的加载出来，才能验证皮肤行
+        catalog.reload()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+    }
+    let root: AnyView
+    switch tab {
+    case .earnings:
+        root = AnyView(EarningsSettingsView(controller: controller))
+    case .pet:
+        root = AnyView(PetSettingsView(appearance: appearance, catalog: catalog))
+    }
+    let hosting = NSHostingView(rootView: root)
+    let size = CGSize(width: 400, height: 560)
     hosting.frame = NSRect(origin: .zero, size: size)
     hosting.layoutSubtreeIfNeeded()
 
@@ -447,14 +481,14 @@ func renderSettingsPanel() -> (pixels: Int, comboItemCounts: [Int]) {
         data: nil, width: width, height: height, bitsPerComponent: 8,
         bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
         bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
-    ) else { return (0, []) }
+    ) else { return (0, [], 0, 0) }
 
     // 目录色（catalog color）不能直接取分量，先转到 sRGB
     let background = NSColor.windowBackgroundColor.usingColorSpace(.sRGB) ?? NSColor.white
     context.setFillColor(background.cgColor)
     context.fill(CGRect(x: 0, y: 0, width: width, height: height))
     hosting.layer?.render(in: context)
-    guard let data = context.data else { return (0, []) }
+    guard let data = context.data else { return (0, [], 0, 0) }
 
     let buffer = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
     var differing = 0
@@ -463,10 +497,21 @@ func renderSettingsPanel() -> (pixels: Int, comboItemCounts: [Int]) {
         // 文字/控件像素与纯背景不同就算"画出来了"
         if abs(Int(buffer[index + 1]) - backgroundRed) > 12 { differing += 1 }
     }
-    return (differing, itemCounts)
+    let sliderCount = collectViews(in: hosting, ofType: NSSlider.self)
+    // 皮肤行是 SwiftUI Button，无法从 AppKit 视图树数出来，改用目录行数 + 像素双重校验
+    let packRowCount = tab == .pet ? (catalog.packs.count + 1) : 0
+    return (differing, itemCounts, sliderCount, packRowCount)
 }
 
 @MainActor
+func collectViews<T: NSView>(in view: NSView, ofType: T.Type) -> Int {
+    var count = (view is T) ? 1 : 0
+    for subview in view.subviews {
+        count += collectViews(in: subview, ofType: ofType)
+    }
+    return count
+}
+
 func collectComboBoxes(in view: NSView) -> [NSComboBox] {
     var found: [NSComboBox] = []
     if let combo = view as? NSComboBox { found.append(combo) }

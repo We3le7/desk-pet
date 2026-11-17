@@ -186,6 +186,14 @@ final class PetPanel: NSPanel {
         displayView?.setMoneyVisible(visible)
     }
 
+    func setVisible(_ visible: Bool) {
+        if visible {
+            orderFrontRegardless()
+        } else {
+            orderOut(nil)
+        }
+    }
+
     func setRotationEnabled(_ enabled: Bool) {
         displayView?.setRotationEnabled(enabled)
     }

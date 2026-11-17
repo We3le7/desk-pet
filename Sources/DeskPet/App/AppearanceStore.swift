@@ -10,6 +10,12 @@ final class AppearanceStore: ObservableObject {
             onScaleChange?(petScale)
         }
     }
+    @Published var isPetVisible: Bool {
+        didSet {
+            defaults.set(isPetVisible, forKey: Self.visibleKey)
+            onVisibilityChange?(isPetVisible)
+        }
+    }
     @Published var rotateActions: Bool {
         didSet {
             defaults.set(rotateActions, forKey: Self.rotationKey)
@@ -19,10 +25,12 @@ final class AppearanceStore: ObservableObject {
 
     var onScaleChange: ((CGFloat) -> Void)?
     var onRotationChange: ((Bool) -> Void)?
+    var onVisibilityChange: ((Bool) -> Void)?
 
     private let defaults: UserDefaults
     private static let scaleKey = "appearance.petScale"
     private static let rotationKey = "appearance.rotateActions"
+    private static let visibleKey = "appearance.petVisible"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -30,5 +38,7 @@ final class AppearanceStore: ObservableObject {
         let storedRotation = defaults.object(forKey: Self.rotationKey) as? Bool
         self.petScale = CGFloat(min(max(storedScale ?? 1.0, 0.6), 2.0))
         self.rotateActions = storedRotation ?? true
+        let storedVisible = defaults.object(forKey: Self.visibleKey) as? Bool
+        self.isPetVisible = storedVisible ?? true
     }
 }

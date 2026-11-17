@@ -6,11 +6,21 @@ import SwiftUI
 final class SettingsWindowController {
     private let controller: EarningsController
     private let appearance: AppearanceStore
+    private let catalog: PetsCatalog
+    private let ui: SettingsUIState
     private var window: NSWindow?
 
-    init(controller: EarningsController, appearance: AppearanceStore) {
+    init(controller: EarningsController, appearance: AppearanceStore, catalog: PetsCatalog, ui: SettingsUIState) {
         self.controller = controller
         self.appearance = appearance
+        self.catalog = catalog
+        self.ui = ui
+    }
+
+    /// 打开设置并切到指定标签页
+    func show(tab: SettingsTab? = nil) {
+        if let tab { ui.tab = tab }
+        show()
     }
 
     func show() {
@@ -21,8 +31,13 @@ final class SettingsWindowController {
     }
 
     private func makeWindow() -> NSWindow {
-        let hosting = NSHostingView(rootView: SettingsView(controller: controller, appearance: appearance))
-        hosting.frame = NSRect(x: 0, y: 0, width: 400, height: 620)
+        let hosting = NSHostingView(rootView: SettingsView(
+            controller: controller,
+            appearance: appearance,
+            catalog: catalog,
+            ui: ui
+        ))
+        hosting.frame = NSRect(x: 0, y: 0, width: 420, height: 600)
 
         let window = NSWindow(
             contentRect: hosting.bounds,

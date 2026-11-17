@@ -2,56 +2,43 @@ import AppKit
 import SwiftUI
 import DeskPetCore
 
-/// 设置面板：薪资、工时、暂停与金额显示。
+/// 设置窗口：两个标签页 —— 上班鼓励器 / 宠物。
 struct SettingsView: View {
     @ObservedObject var controller: EarningsController
     @ObservedObject var appearance: AppearanceStore
+    @ObservedObject var catalog: PetsCatalog
+    @ObservedObject var ui: SettingsUIState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("上班鼓励器")
-                .font(.system(size: 15, weight: .semibold))
+        TabView(selection: $ui.tab) {
+            EarningsSettingsView(controller: controller)
+                .tabItem { Text("上班鼓励器") }
+                .tag(SettingsTab.earnings)
 
+            PetSettingsView(appearance: appearance, catalog: catalog)
+                .tabItem { Text("宠物") }
+                .tag(SettingsTab.pet)
+        }
+        .padding(16)
+        .frame(width: 420, height: 600)
+    }
+}
+
+// MARK: - 上班鼓励器
+
+struct EarningsSettingsView: View {
+    @ObservedObject var controller: EarningsController
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                 row("税后月薪", unit: "元") { numberField(doubleBinding(\.monthlyNet), width: 88) }
                 row("月均工作日", unit: "天") { numberField(doubleBinding(\.workdaysPerMonth), width: 88) }
                 row("每日工时", unit: "小时") { numberField(doubleBinding(\.hoursPerDay), width: 88) }
                 row("年终额外月数", unit: "月") { numberField(doubleBinding(\.extraMonthsPerYear), width: 88) }
-                row("上班时间", unit: "") {
-                    timeWheels(\SalaryConfig.startMinuteOfDay)
-                }
-                row("下班时间", unit: "") {
-                    timeWheels(\SalaryConfig.endMinuteOfDay)
-                }
+                row("上班时间", unit: "") { timeWheels(\.startMinuteOfDay) }
+                row("下班时间", unit: "") { timeWheels(\.endMinuteOfDay) }
                 row("午休扣除", unit: "分钟") { numberField(intBinding(\.lunchBreakMinutes), width: 88) }
-            }
-
-            Divider()
-
-            Text("宠物")
-                .font(.system(size: 13, weight: .semibold))
-
-            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
-                row("大小", unit: String(format: "%.0f%%", appearance.petScale * 100)) {
-                    Slider(
-                        value: Binding(
-                            get: { appearance.petScale },
-                            set: { appearance.petScale = $0 }
-                        ),
-                        in: 0.6...2.0,
-                        step: 0.05
-                    )
-                    .frame(width: 170)
-                }
-                GridRow {
-                    Text("空闲轮播").font(.system(size: 12)).foregroundColor(.secondary)
-                        .frame(width: 88, alignment: .leading)
-                    Toggle("空闲时轮播不同动作", isOn: Binding(
-                        get: { appearance.rotateActions },
-                        set: { appearance.rotateActions = $0 }
-                    ))
-                    .toggleStyle(.checkbox)
-                }
             }
 
             Divider()
@@ -63,12 +50,12 @@ struct SettingsView: View {
                      + (controller.isPaused ? "（已暂停）" : ""))
                     .font(.system(size: 12).monospacedDigit())
                     .foregroundColor(.secondary)
-                Text("按在岗时长计钱：合同时薪 × 在岗秒数，不是把月薪均摊到窗口。")
+                Text("按在岗时长计钱：合同时薪 × 在岗秒数。")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }
 
-            HStack(spacing: 10) {
+            HStack(spacing: 14) {
                 Button(controller.isPaused ? "继续" : "暂停") {
                     controller.togglePause()
                 }
@@ -81,11 +68,7 @@ struct SettingsView: View {
 
             Spacer(minLength: 0)
         }
-        .padding(18)
-        .frame(width: 400, height: 620)
     }
-
-    // MARK: - 组件
 
     private func row<Content: View>(
         _ title: String,
@@ -106,30 +89,21 @@ struct SettingsView: View {
         }
     }
 
+    private func timeWheels(_ keyPath: WritableKeyPath<SalaryConfig, Int>) -> some View {
+        HStack(spacing: 3) {
+            ScrollingNumberPicker(values: Array(0..<24), selection: hourBinding(keyPath), width: 58)
+            Text(":")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.secondary)
+            ScrollingNumberPicker(values: Array(stride(from: 0, to: 60, by: 5)), selection: minuteBinding(keyPath), width: 58)
+        }
+    }
+
     private func numberField(_ binding: Binding<Double>, width: CGFloat) -> some View {
         TextField("", value: binding, format: .number.precision(.fractionLength(0...2)))
             .textFieldStyle(.roundedBorder)
             .frame(width: width)
             .multilineTextAlignment(.trailing)
-    }
-
-    /// 小时 + 分钟两个滚动选择器（macOS 没有 wheel 样式，用可滚动列表的 NSComboBox）
-    private func timeWheels(_ keyPath: WritableKeyPath<SalaryConfig, Int>) -> some View {
-        HStack(spacing: 3) {
-            ScrollingNumberPicker(
-                values: Array(0..<24),
-                selection: hourBinding(keyPath),
-                width: 58
-            )
-            Text(":")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.secondary)
-            ScrollingNumberPicker(
-                values: Array(stride(from: 0, to: 60, by: 5)),
-                selection: minuteBinding(keyPath),
-                width: 58
-            )
-        }
     }
 
     private func numberField(_ binding: Binding<Int>, width: CGFloat) -> some View {
@@ -138,8 +112,6 @@ struct SettingsView: View {
             .frame(width: width)
             .multilineTextAlignment(.trailing)
     }
-
-    // MARK: - 绑定
 
     private func doubleBinding(_ keyPath: WritableKeyPath<SalaryConfig, Double>) -> Binding<Double> {
         Binding(
@@ -168,7 +140,6 @@ struct SettingsView: View {
     private func minuteBinding(_ keyPath: WritableKeyPath<SalaryConfig, Int>) -> Binding<Int> {
         Binding(
             get: {
-                // 滑轮只列 5 的倍数；历史值不是整刻度时归一到最近的刻度
                 let minute = controller.config[keyPath: keyPath] % 60
                 return min(minute / 5 * 5, 55)
             },
@@ -180,9 +151,119 @@ struct SettingsView: View {
     }
 }
 
+// MARK: - 宠物
 
-/// macOS 上没有 SwiftUI 的 `.wheel` 选择器；这里用可滚动的 `NSComboBox` 做等效控件：
-/// 点开是一个可鼠标滚轮滚动的列表，选一项即生效。
+struct PetSettingsView: View {
+    @ObservedObject var appearance: AppearanceStore
+    @ObservedObject var catalog: PetsCatalog
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Toggle("在桌面上显示宠物", isOn: Binding(
+                get: { appearance.isPetVisible },
+                set: { appearance.isPetVisible = $0 }
+            ))
+            .toggleStyle(.switch)
+
+            Divider()
+
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
+                GridRow {
+                    Text("大小").font(.system(size: 12)).foregroundColor(.secondary)
+                        .frame(width: 88, alignment: .leading)
+                    HStack(spacing: 8) {
+                        Slider(
+                            value: Binding(
+                                get: { appearance.petScale },
+                                set: { appearance.petScale = $0 }
+                            ),
+                            in: 0.6...2.0,
+                            step: 0.05
+                        )
+                        .frame(width: 170)
+                        Text(String(format: "%.0f%%", appearance.petScale * 100))
+                            .font(.system(size: 12).monospacedDigit())
+                            .foregroundColor(.secondary)
+                    }
+                }
+                GridRow {
+                    Text("空闲轮播").font(.system(size: 12)).foregroundColor(.secondary)
+                        .frame(width: 88, alignment: .leading)
+                    Toggle("空闲时轮播不同动作", isOn: Binding(
+                        get: { appearance.rotateActions },
+                        set: { appearance.rotateActions = $0 }
+                    ))
+                    .toggleStyle(.checkbox)
+                }
+            }
+
+            Divider()
+
+            Text("皮肤")
+                .font(.system(size: 13, weight: .semibold))
+            Text("当前：\(catalog.selectedName)")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    packRow(
+                        id: nil,
+                        title: "内置（代码绘制）",
+                        detail: "不需要素材，任何机器上都有",
+                        selected: catalog.selectedID == nil
+                    )
+                    ForEach(catalog.packs, id: \.id) { pack in
+                        packRow(
+                            id: pack.id,
+                            title: pack.displayName,
+                            detail: "\(pack.id) · \(pack.tracks.count) 轨 · \(pack.license ?? "无许可声明")",
+                            selected: catalog.selectedID == pack.id
+                        )
+                    }
+                }
+            }
+            .frame(maxHeight: 230)
+
+            if catalog.packs.isEmpty {
+                Text("没有发现宠物包，可放到 ~/.dsh/pets 或 ~/.codex/pets。")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func packRow(id: String?, title: String, detail: String, selected: Bool) -> some View {
+        Button {
+            catalog.select(id)
+        } label: {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
+                    .foregroundColor(selected ? .accentColor : .secondary)
+                    .font(.system(size: 12))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.system(size: 12, weight: selected ? .semibold : .regular))
+                    Text(detail).font(.system(size: 10)).foregroundColor(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 4)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(selected ? Color.accentColor.opacity(0.12) : Color.clear)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - 可滚动数字选择器
+
+/// macOS 上没有 SwiftUI 的 `.wheel` 选择器；这里用可滚动的 `NSComboBox` 做等效控件。
 struct ScrollingNumberPicker: NSViewRepresentable {
     let values: [Int]
     @Binding var selection: Int

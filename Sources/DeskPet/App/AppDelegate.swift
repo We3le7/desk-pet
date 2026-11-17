@@ -8,12 +8,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var metrics: MetricsService?
     private var debugWindow: DebugWindowController?
     private let state = PetAppState()
-    private var packs: [PetPack] = []
+    private let catalog = PetsCatalog()
+    private let settingsUI = SettingsUIState()
     private var earnings: EarningsController?
     private var settingsWindow: SettingsWindowController?
     private var hotKey: HotKeyManager?
     private let appearance = AppearanceStore()
-    private static let selectedPackKey = "pet.selected.id"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let panel = PetPanel()
@@ -29,11 +29,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             debugWindow?.toggle()
         }
 
-        statusBar.onSelectPack = { [weak self] id in
-            self?.selectPack(id: id)
-        }
-        loadPacks()
-
         let earnings = EarningsController()
         earnings.bind(panel: panel)
         earnings.onMilestone = { [weak panel] _, isBig in
@@ -42,10 +37,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.earnings = earnings
         earnings.start()
 
-        let settingsWindow = SettingsWindowController(controller: earnings, appearance: appearance)
+        let settingsWindow = SettingsWindowController(
+            controller: earnings,
+            appearance: appearance,
+            catalog: catalog,
+            ui: settingsUI
+        )
         self.settingsWindow = settingsWindow
 
-        // 外观：宠物大小与轮播
+        catalog.onSelect = { [weak panel, weak statusBar] pack in
+            panel?.setPack(pack)
+            statusBar?.updatePetTitle(pack?.displayName ?? "内置")
+        }
+        catalog.reload()
+
+        // 外观：显示 / 大小 / 轮播
+        panel.setVisible(appearance.isPetVisible)
+        appearance.onVisibilityChange = { [weak panel] visible in
+            panel?.setVisible(visible)
+        }
         panel.setPetScale(appearance.petScale)
         panel.setRotationEnabled(appearance.rotateActions)
         appearance.onScaleChange = { [weak panel] scale in
@@ -61,9 +71,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             statusBar?.popUpMenu(at: point, in: contentView)
         }
 
+        statusBar.onOpenPetSettings = { [weak settingsWindow] in
+            settingsWindow?.show(tab: .pet)
+        }
         statusBar.onTogglePause = { [weak earnings] in earnings?.togglePause() }
         statusBar.onToggleMoney = { [weak earnings] in earnings?.toggleMoneyVisibility() }
-        statusBar.onOpenSettings = { [weak settingsWindow] in settingsWindow?.show() }
+        statusBar.onOpenSettings = { [weak settingsWindow] in
+            settingsWindow?.show(tab: .earnings)
+        }
 
         hotKey = HotKeyManager { [weak earnings] in
             earnings?.toggleMoneyVisibility()
@@ -87,66 +102,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         metrics?.stop()
         earnings?.stop()
-    }
-
-    // MARK: - 宠物包
-
-    /// 解析宠物包要扫上千个文件，放后台做，避免拖慢启动。
-    private func loadPacks() {
-        Task.detached(priority: .userInitiated) { [weak self] in
-            let packs = PetLibrary().discover()
-            await MainActor.run {
-                guard let self else { return }
-                self.packs = packs
-                let storedID = UserDefaults.standard.string(forKey: Self.selectedPackKey)
-                if let storedID, packs.contains(where: { $0.id == storedID }) {
-                    self.selectPack(id: storedID, persist: false)
-                } else {
-                    UserDefaults.standard.removeObject(forKey: Self.selectedPackKey)
-                    self.petPanel?.setPack(nil)
-                }
-                self.statusBar?.rebuildPetSubmenu(
-                    packs: packs.map {
-                        PetPackDescriptor(
-                            id: $0.id,
-                            displayName: $0.displayName,
-                            adapter: $0.adapter,
-                            root: $0.root,
-                            trackCount: $0.tracks.count,
-                            detail: $0.license ?? "\($0.tracks.count) 轨"
-                        )
-                    },
-                    selectedID: storedID
-                )
-            }
-        }
-    }
-
-    private func selectPack(id: String?, persist: Bool = true) {
-        if let id, let pack = packs.first(where: { $0.id == id }) {
-            petPanel?.setPack(pack)
-            if persist {
-                UserDefaults.standard.set(id, forKey: Self.selectedPackKey)
-            }
-        } else {
-            petPanel?.setPack(nil)
-            if persist {
-                UserDefaults.standard.removeObject(forKey: Self.selectedPackKey)
-            }
-        }
-        statusBar?.rebuildPetSubmenu(
-            packs: packs.map {
-                PetPackDescriptor(
-                    id: $0.id,
-                    displayName: $0.displayName,
-                    adapter: $0.adapter,
-                    root: $0.root,
-                    trackCount: $0.tracks.count,
-                    detail: $0.license ?? "\($0.tracks.count) 轨"
-                )
-            },
-            selectedID: id
-        )
     }
 
     /// 关掉窗口不退出：这是个常驻工具，退出走菜单栏。
