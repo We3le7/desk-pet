@@ -141,6 +141,18 @@ final class PetPanel: NSPanel {
         displayView?.setPack(pack)
     }
 
+    func setMoneyText(_ text: String) {
+        displayView?.setMoneyText(text)
+    }
+
+    func setMoneyVisible(_ visible: Bool) {
+        displayView?.setMoneyVisible(visible)
+    }
+
+    func burstCoins(isBig: Bool) {
+        displayView?.burstCoins(isBig: isBig)
+    }
+
     // MARK: - 交互动作
 
     @objc func toggleClickThrough(_ sender: Any? = nil) {

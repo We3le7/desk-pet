@@ -184,6 +184,74 @@ expectEqual(MoodTrackMap.candidates(for: .busy, adapter: .atlas).first, "running
 expectEqual(MoodTrackMap.candidates(for: .pet, adapter: .frames2d).first, "shy", "DSH 摸头对应 shy")
 expectEqual(MoodTrackMap.candidates(for: .sleeping, adapter: .atlas).first, "idle", "图集没有睡眠行，退回 idle")
 
+// MARK: - 上班鼓励器
+
+print("SalaryConfig")
+
+let salary = SalaryConfig()
+expect(abs(salary.perSecond - 0.033525) < 0.0001, "默认每秒约 0.0335 元（实际 \(salary.perSecond)）")
+expect(abs(salary.perHour - 120.69) < 0.5, "默认时薪约 120.7 元")
+expect(abs(salary.perDay - 1146.6) < 5, "在岗一天约 1146 元（9.5h 窗口）")
+
+let withBonus = SalaryConfig(extraMonthsPerYear: 1)
+expect(abs(withBonus.effectiveMonthly - 22750) < 0.01, "13 薪折算等效月薪 22750")
+expect(withBonus.perSecond > salary.perSecond, "摊入年终后每秒更高")
+
+let longShift = SalaryConfig(startMinuteOfDay: 9 * 60, endMinuteOfDay: 21 * 60)
+expect(longShift.perSecond == salary.perSecond, "在岗窗口变长不影响每秒工资")
+expect(longShift.perDay > salary.perDay, "但一天能赚更多")
+
+print("EarningsEngine")
+
+var calendar2 = Calendar(identifier: .gregorian)
+calendar2.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+@MainActor func day(_ y: Int, _ mo: Int, _ d: Int, _ h: Int, _ mi: Int, _ s: Int = 0) -> Date {
+    var c = DateComponents()
+    c.year = y; c.month = mo; c.day = d; c.hour = h; c.minute = mi; c.second = s
+    c.timeZone = TimeZone(identifier: "Asia/Shanghai")
+    return calendar2.date(from: c)!
+}
+
+let engine = EarningsEngine()
+expectEqual(engine.workedSecondsToday(at: day(2026, 11, 18, 9, 29), calendar: calendar2), 0, "09:29 还没开始赚")
+expectEqual(engine.workedSecondsToday(at: day(2026, 11, 18, 9, 31), calendar: calendar2), 60, "09:31 已工作 60 秒")
+expectEqual(engine.workedSecondsToday(at: day(2026, 11, 18, 19, 30), calendar: calendar2), 9.5 * 3600, "19:30 封顶在岗窗口")
+expectEqual(engine.workedSecondsToday(at: day(2026, 11, 21, 12, 0), calendar: calendar2), 0, "周六不赚钱")
+
+let noon = engine.amount(at: day(2026, 11, 18, 12, 0), calendar: calendar2)
+expect(abs(noon.workedSeconds - 2.5 * 3600) < 1, "12:00 已工作 2.5 小时")
+expect(abs(noon.total - 2.5 * 3600 * salary.perSecond) < 0.01, "金额 = 秒数 × 每秒工资")
+expect(noon.isWorking, "工作时段标记为 working")
+
+var paused = EarningsEngine()
+paused.pause(at: day(2026, 11, 18, 12, 0), calendar: calendar2)
+let frozenTotal = paused.amount(at: day(2026, 11, 18, 12, 0), calendar: calendar2).total
+let laterTotal = paused.amount(at: day(2026, 11, 18, 13, 0), calendar: calendar2).total
+expectEqual(laterTotal, frozenTotal, "暂停后金额冻结")
+expect(paused.amount(at: day(2026, 11, 18, 13, 0), calendar: calendar2).isPaused, "暂停状态可查询")
+paused.resume()
+expect(paused.amount(at: day(2026, 11, 18, 13, 0), calendar: calendar2).total > frozenTotal, "恢复后按真实时间继续增长")
+
+print("MilestoneTracker")
+
+var tracker = MilestoneTracker(step: 50, bigStep: 500)
+expectEqual(tracker.crossed(from: 49, to: 51), [50], "跨过 50")
+expectEqual(tracker.crossed(from: 480, to: 1010), [500, 550, 600, 650, 700, 750, 800, 850, 900, 950, 1000], "一次跨多个里程碑")
+expectEqual(tracker.crossed(from: 100, to: 100), [], "金额不变不触发")
+expectEqual(tracker.crossed(from: 120, to: 100), [], "金额倒退不触发")
+expect(tracker.isBig(500), "500 是大里程碑")
+expect(!tracker.isBig(550), "550 不是")
+
+print("MoneyFormat")
+
+expectEqual(MoneyFormat.yuan(0), "¥0.00", "零值格式")
+expectEqual(MoneyFormat.yuan(1234.5678), "¥1,234.57", "千分位与四舍五入")
+expectEqual(MoneyFormat.yuan(999.999), "¥1,000.00", "进位到千位")
+expectEqual(MoneyFormat.yuan(12.3), "¥12.30", "补两位小数")
+expectEqual(MoneyFormat.perSecond(0.0334), "¥0.033/秒", "小额每秒三位小数")
+expectEqual(MoneyFormat.perSecond(0.0335), "¥0.034/秒", "小额四舍五入到三位")
+expectEqual(MoneyFormat.perSecond(1.2), "¥1.20/秒", "大额每秒两位小数")
+
 // MARK: - 汇总
 
 print("")

@@ -11,6 +11,12 @@ final class StatusBarController: NSObject {
     private var lastMood: PetMood?
     var onToggleDebugPanel: (() -> Void)?
     var onSelectPack: ((String?) -> Void)?
+    var onTogglePause: (() -> Void)?
+    var onToggleMoney: (() -> Void)?
+    var onOpenSettings: (() -> Void)?
+    private var earningsItem: NSMenuItem?
+    private var pauseItem: NSMenuItem?
+    private var moneyItem: NSMenuItem?
     private var petMenuItem: NSMenuItem?
     private var petSubmenu = NSMenu()
 
@@ -51,6 +57,35 @@ final class StatusBarController: NSObject {
         let recenter = NSMenuItem(title: "回到右下角", action: #selector(resetPosition(_:)), keyEquivalent: "")
         recenter.target = self
         menu.addItem(recenter)
+
+        menu.addItem(.separator())
+
+        // 鼓励器
+        let earningsMenu = NSMenu()
+        let earningsRoot = NSMenuItem(title: "上班鼓励器", action: nil, keyEquivalent: "")
+        earningsRoot.submenu = earningsMenu
+        menu.addItem(earningsRoot)
+
+        let today = NSMenuItem(title: "今日：—", action: nil, keyEquivalent: "")
+        today.isEnabled = false
+        earningsItem = today
+        earningsMenu.addItem(today)
+
+        let pause = NSMenuItem(title: "暂停", action: #selector(togglePause(_:)), keyEquivalent: "")
+        pause.target = self
+        pauseItem = pause
+        earningsMenu.addItem(pause)
+
+        let money = NSMenuItem(title: "显示金额", action: #selector(toggleMoney(_:)), keyEquivalent: "h")
+        money.keyEquivalentModifierMask = [.command, .shift]
+        money.target = self
+        moneyItem = money
+        earningsMenu.addItem(money)
+
+        earningsMenu.addItem(.separator())
+        let settings = NSMenuItem(title: "设置…", action: #selector(openSettings(_:)), keyEquivalent: ",")
+        settings.target = self
+        earningsMenu.addItem(settings)
 
         menu.addItem(.separator())
 
@@ -159,6 +194,19 @@ final class StatusBarController: NSObject {
         let id = sender.representedObject as? String
         onSelectPack?(id?.isEmpty == true ? nil : id)
     }
+
+    /// 刷新鼓励器菜单。
+    func updateEarnings(_ amount: EarningsAmount, isPaused: Bool, isMoneyVisible: Bool) {
+        let prefix = isPaused ? "今日：" : "今日："
+        earningsItem?.title = "\(prefix)\(MoneyFormat.yuan(amount.total))"
+        earningsItem?.title = isMoneyVisible ? earningsItem?.title ?? "" : "今日：***"
+        pauseItem?.title = isPaused ? "继续" : "暂停"
+        moneyItem?.state = isMoneyVisible ? .on : .off
+    }
+
+    @objc private func togglePause(_ sender: Any?) { onTogglePause?() }
+    @objc private func toggleMoney(_ sender: Any?) { onToggleMoney?() }
+    @objc private func openSettings(_ sender: Any?) { onOpenSettings?() }
 
     @objc private func showDebugPanel(_ sender: Any?) {
         onToggleDebugPanel?()

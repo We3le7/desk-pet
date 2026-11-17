@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import DeskPetCore
 
 // CLI 参数优先于 GUI：方便脚本与 CI 调用（M2.5 会补全 --validate-pack 等）
@@ -6,6 +7,22 @@ let arguments = Array(CommandLine.arguments.dropFirst())
 
 if arguments.contains("--version") {
     print("DeskPet 0.1.0")
+    exit(0)
+}
+
+// 打印当前收益快照（可与手算对数）
+if arguments.contains("--earnings-once") {
+    let config = SalaryConfig()
+    let engine = EarningsEngine(config: config)
+    let now = Date()
+    let amount = engine.amount(at: now)
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+    print("上班鼓励器快照  \(formatter.string(from: now))")
+    print("  \(config.summary)")
+    print("  今日已工作 \(Int(amount.workedSeconds)) 秒")
+    print("  今日已到账 \(MoneyFormat.yuan(amount.total))")
+    print("  工作时段   \(amount.isWorking ? "是" : "否")")
     exit(0)
 }
 
@@ -71,6 +88,7 @@ if arguments.contains("--help") || arguments.contains("-h") {
       DeskPet --bench-metrics [n]      各 Provider 耗时基准（开发用）
       DeskPet --list-pets              列出本机可用的宠物包
       DeskPet --check-pack <id>        解码并统计某个宠物包（开发用）
+      DeskPet --earnings-once          打印当前收益快照
     """)
     exit(0)
 }
@@ -151,8 +169,66 @@ func runUISelfCheck() -> Int32 {
         print(String(format: "  ok   情绪影响配色（平均色差 %.1f）", colorDelta))
     }
 
+    // 金额标签：渲染带金额的显示宿主，检查底部条带是否出现像素
+    let labelPixels = renderMoneyLabel()
+    if labelPixels < 200 {
+        print("  FAIL 金额标签几乎没画出像素（\(labelPixels)）")
+        failures += 1
+    } else {
+        print("  ok   金额标签可见（底部条带 \(labelPixels) 个不透明像素）")
+    }
+
+    let settingsPixels = renderSettingsPanel()
+    if settingsPixels < 3000 {
+        print("  FAIL 设置面板几乎没画出内容（\(settingsPixels)）")
+        failures += 1
+    } else {
+        print("  ok   设置面板可渲染（\(settingsPixels) 个不透明像素）")
+    }
+
     print(failures == 0 ? "自检通过" : "自检失败")
     return failures == 0 ? 0 : 1
+}
+
+/// 渲染一个带金额的显示宿主，统计窗口底部 30pt 内的不透明像素。
+@MainActor
+func renderMoneyLabel() -> Int {
+    let size = CGSize(width: 200, height: 260)
+    let scale: CGFloat = 2
+    let width = Int(size.width * scale)
+    let height = Int(size.height * scale)
+
+    let view = PetDisplayView(frame: NSRect(origin: .zero, size: size))
+    view.setMoneyText("¥1,234.56")
+    view.layoutSubtreeIfNeeded()
+
+    if ProcessInfo.processInfo.environment["DESKPET_DEBUG"] == "1" {
+        print("  [debug] layer=\(view.layer != nil) sublayers=\(view.layer?.sublayers?.count ?? -1) "
+              + "pillPath=\(view.moneyPillLayer.path != nil) "
+              + "text=\(String(describing: view.moneyTextLayer.string))")
+    }
+
+    guard let context = CGContext(
+        data: nil, width: width, height: height, bitsPerComponent: 8,
+        bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+    ) else { return 0 }
+
+    context.scaleBy(x: scale, y: scale)
+    view.layer?.render(in: context)
+    guard let data = context.data else { return 0 }
+
+    let buffer = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
+    var opaque = 0
+    // 只看底部 36pt（标签所在区域）。注意 bitmap 内存第一行是**顶部**，所以要扫最后的行。
+    let band = Int(36 * scale)
+    for y in (height - band)..<height {
+        for x in 0..<width {
+            let index = (y * width + x) * 4
+            if buffer[index] > 12 { opaque += 1 }
+        }
+    }
+    return opaque
 }
 
 
@@ -331,4 +407,40 @@ func pixelStats(of image: CGImage) -> (opaqueRatio: Double, color: (Double, Doub
     guard opaque > 0 else { return (0, (0, 0, 0)) }
     let count = Double(opaque)
     return (Double(opaque) / Double(width * height), (sumR / count, sumG / count, sumB / count))
+}
+
+
+/// 离屏渲染设置面板，确认表单能正常布局出内容。
+@MainActor
+func renderSettingsPanel() -> Int {
+    let controller = EarningsController()
+    let hosting = NSHostingView(rootView: SettingsView(controller: controller))
+    let size = CGSize(width: 380, height: 380)
+    hosting.frame = NSRect(origin: .zero, size: size)
+    hosting.layoutSubtreeIfNeeded()
+
+    let scale: CGFloat = 1
+    let width = Int(size.width * scale)
+    let height = Int(size.height * scale)
+    guard let context = CGContext(
+        data: nil, width: width, height: height, bitsPerComponent: 8,
+        bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+    ) else { return 0 }
+
+    // 目录色（catalog color）不能直接取分量，先转到 sRGB
+    let background = NSColor.windowBackgroundColor.usingColorSpace(.sRGB) ?? NSColor.white
+    context.setFillColor(background.cgColor)
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    hosting.layer?.render(in: context)
+    guard let data = context.data else { return 0 }
+
+    let buffer = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
+    var differing = 0
+    let backgroundRed = Int(background.redComponent * 255)
+    for index in stride(from: 0, to: width * height * 4, by: 4) {
+        // 文字/控件像素与纯背景不同就算"画出来了"
+        if abs(Int(buffer[index + 1]) - backgroundRed) > 12 { differing += 1 }
+    }
+    return differing
 }

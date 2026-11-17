@@ -9,6 +9,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var debugWindow: DebugWindowController?
     private let state = PetAppState()
     private var packs: [PetPack] = []
+    private var earnings: EarningsController?
+    private var settingsWindow: SettingsWindowController?
+    private var hotKey: HotKeyManager?
     private static let selectedPackKey = "pet.selected.id"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -30,6 +33,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         loadPacks()
 
+        let earnings = EarningsController()
+        earnings.bind(panel: panel)
+        earnings.onMilestone = { [weak panel] _, isBig in
+            panel?.burstCoins(isBig: isBig)
+        }
+        self.earnings = earnings
+        earnings.start()
+
+        let settingsWindow = SettingsWindowController(controller: earnings)
+        self.settingsWindow = settingsWindow
+
+        statusBar.onTogglePause = { [weak earnings] in earnings?.togglePause() }
+        statusBar.onToggleMoney = { [weak earnings] in earnings?.toggleMoneyVisibility() }
+        statusBar.onOpenSettings = { [weak settingsWindow] in settingsWindow?.show() }
+
+        hotKey = HotKeyManager { [weak earnings] in
+            earnings?.toggleMoneyVisibility()
+        }
+        hotKey?.register()
+
+        if ProcessInfo.processInfo.environment["DESKPET_DEMO_COINS"] == "1" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak panel] in
+                print("[demo] 触发金币动画")
+                fflush(stdout)
+                panel?.burstCoins(isBig: true)
+            }
+        }
+
         let metrics = MetricsService(state: state)
         metrics.bind(panel: panel, statusBar: statusBar)
         self.metrics = metrics
@@ -38,6 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         metrics?.stop()
+        earnings?.stop()
     }
 
     // MARK: - 宠物包
