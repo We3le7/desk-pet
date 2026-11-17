@@ -187,12 +187,20 @@ func runUISelfCheck() -> Int32 {
         print("  ok   宠物区与金额区不重叠（底部仅 \(bandPixels) 个像素）")
     }
 
-    let settingsPixels = renderSettingsPanel()
-    if settingsPixels < 3000 {
-        print("  FAIL 设置面板几乎没画出内容（\(settingsPixels)）")
+    let settingsInfo = renderSettingsPanel()
+    if settingsInfo.pixels < 3000 {
+        print("  FAIL 设置面板几乎没画出内容（\(settingsInfo.pixels)）")
         failures += 1
     } else {
-        print("  ok   设置面板可渲染（\(settingsPixels) 个不透明像素）")
+        print("  ok   设置面板可渲染（\(settingsInfo.pixels) 个不透明像素）")
+    }
+
+    // 时间选择器：上班/下班各一组，每组小时 24 项 + 分钟 12 项
+    if settingsInfo.comboItemCounts.sorted() == [12, 12, 24, 24] {
+        print("  ok   时间选择器就位（\(settingsInfo.comboItemCounts.sorted()) 项）")
+    } else {
+        print("  FAIL 时间选择器异常（发现 \(settingsInfo.comboItemCounts)）")
+        failures += 1
     }
 
     print(failures == 0 ? "自检通过" : "自检失败")
@@ -421,13 +429,16 @@ func pixelStats(of image: CGImage) -> (opaqueRatio: Double, color: (Double, Doub
 
 /// 离屏渲染设置面板，确认表单能正常布局出内容。
 @MainActor
-func renderSettingsPanel() -> Int {
+func renderSettingsPanel() -> (pixels: Int, comboItemCounts: [Int]) {
     let controller = EarningsController()
     let appearance = AppearanceStore()
     let hosting = NSHostingView(rootView: SettingsView(controller: controller, appearance: appearance))
-    let size = CGSize(width: 380, height: 520)
+    let size = CGSize(width: 400, height: 620)
     hosting.frame = NSRect(origin: .zero, size: size)
     hosting.layoutSubtreeIfNeeded()
+
+    let combos = collectComboBoxes(in: hosting)
+    let itemCounts = combos.map { $0.numberOfItems }
 
     let scale: CGFloat = 1
     let width = Int(size.width * scale)
@@ -436,14 +447,14 @@ func renderSettingsPanel() -> Int {
         data: nil, width: width, height: height, bitsPerComponent: 8,
         bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
         bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
-    ) else { return 0 }
+    ) else { return (0, []) }
 
     // 目录色（catalog color）不能直接取分量，先转到 sRGB
     let background = NSColor.windowBackgroundColor.usingColorSpace(.sRGB) ?? NSColor.white
     context.setFillColor(background.cgColor)
     context.fill(CGRect(x: 0, y: 0, width: width, height: height))
     hosting.layer?.render(in: context)
-    guard let data = context.data else { return 0 }
+    guard let data = context.data else { return (0, []) }
 
     let buffer = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
     var differing = 0
@@ -452,7 +463,17 @@ func renderSettingsPanel() -> Int {
         // 文字/控件像素与纯背景不同就算"画出来了"
         if abs(Int(buffer[index + 1]) - backgroundRed) > 12 { differing += 1 }
     }
-    return differing
+    return (differing, itemCounts)
+}
+
+@MainActor
+func collectComboBoxes(in view: NSView) -> [NSComboBox] {
+    var found: [NSComboBox] = []
+    if let combo = view as? NSComboBox { found.append(combo) }
+    for subview in view.subviews {
+        found.append(contentsOf: collectComboBoxes(in: subview))
+    }
+    return found
 }
 
 

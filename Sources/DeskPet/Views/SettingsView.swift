@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import DeskPetCore
 
@@ -17,20 +18,10 @@ struct SettingsView: View {
                 row("每日工时", unit: "小时") { numberField(doubleBinding(\.hoursPerDay), width: 88) }
                 row("年终额外月数", unit: "月") { numberField(doubleBinding(\.extraMonthsPerYear), width: 88) }
                 row("上班时间", unit: "") {
-                    HStack(spacing: 4) {
-                        numberField(hourBinding(\.startMinuteOfDay), width: 44)
-                        Text("时").foregroundColor(.secondary)
-                        numberField(minuteBinding(\.startMinuteOfDay), width: 44)
-                        Text("分").foregroundColor(.secondary)
-                    }
+                    timeWheels(\SalaryConfig.startMinuteOfDay)
                 }
                 row("下班时间", unit: "") {
-                    HStack(spacing: 4) {
-                        numberField(hourBinding(\.endMinuteOfDay), width: 44)
-                        Text("时").foregroundColor(.secondary)
-                        numberField(minuteBinding(\.endMinuteOfDay), width: 44)
-                        Text("分").foregroundColor(.secondary)
-                    }
+                    timeWheels(\SalaryConfig.endMinuteOfDay)
                 }
                 row("午休扣除", unit: "分钟") { numberField(intBinding(\.lunchBreakMinutes), width: 88) }
             }
@@ -91,7 +82,7 @@ struct SettingsView: View {
             Spacer(minLength: 0)
         }
         .padding(18)
-        .frame(width: 380, height: 520)
+        .frame(width: 400, height: 620)
     }
 
     // MARK: - 组件
@@ -120,6 +111,25 @@ struct SettingsView: View {
             .textFieldStyle(.roundedBorder)
             .frame(width: width)
             .multilineTextAlignment(.trailing)
+    }
+
+    /// 小时 + 分钟两个滚动选择器（macOS 没有 wheel 样式，用可滚动列表的 NSComboBox）
+    private func timeWheels(_ keyPath: WritableKeyPath<SalaryConfig, Int>) -> some View {
+        HStack(spacing: 3) {
+            ScrollingNumberPicker(
+                values: Array(0..<24),
+                selection: hourBinding(keyPath),
+                width: 58
+            )
+            Text(":")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.secondary)
+            ScrollingNumberPicker(
+                values: Array(stride(from: 0, to: 60, by: 5)),
+                selection: minuteBinding(keyPath),
+                width: 58
+            )
+        }
     }
 
     private func numberField(_ binding: Binding<Int>, width: CGFloat) -> some View {
@@ -157,11 +167,66 @@ struct SettingsView: View {
 
     private func minuteBinding(_ keyPath: WritableKeyPath<SalaryConfig, Int>) -> Binding<Int> {
         Binding(
-            get: { controller.config[keyPath: keyPath] % 60 },
+            get: {
+                // 滑轮只列 5 的倍数；历史值不是整刻度时归一到最近的刻度
+                let minute = controller.config[keyPath: keyPath] % 60
+                return min(minute / 5 * 5, 55)
+            },
             set: { minute in
                 let hour = controller.config[keyPath: keyPath] / 60
-                controller.config[keyPath: keyPath] = hour * 60 + min(max(minute, 0), 59)
+                controller.config[keyPath: keyPath] = hour * 60 + min(max(minute, 0), 55)
             }
         )
+    }
+}
+
+
+/// macOS 上没有 SwiftUI 的 `.wheel` 选择器；这里用可滚动的 `NSComboBox` 做等效控件：
+/// 点开是一个可鼠标滚轮滚动的列表，选一项即生效。
+struct ScrollingNumberPicker: NSViewRepresentable {
+    let values: [Int]
+    @Binding var selection: Int
+    var width: CGFloat = 58
+
+    final class Coordinator: NSObject {
+        var values: [Int] = []
+        var selection: Binding<Int>
+
+        init(selection: Binding<Int>) {
+            self.selection = selection
+        }
+
+        @objc func changed(_ sender: NSComboBox) {
+            let index = sender.indexOfSelectedItem
+            guard index >= 0, index < values.count else { return }
+            selection.wrappedValue = values[index]
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(selection: $selection) }
+
+    func makeNSView(context: Context) -> NSComboBox {
+        let combo = NSComboBox()
+        combo.isEditable = false
+        combo.completes = false
+        combo.numberOfVisibleItems = 12
+        combo.usesDataSource = false
+        combo.font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        combo.addItems(withObjectValues: values.map { String(format: "%02d", $0) })
+        context.coordinator.values = values
+        combo.target = context.coordinator
+        combo.action = #selector(Coordinator.changed(_:))
+        if let index = values.firstIndex(of: selection) {
+            combo.selectItem(at: index)
+        }
+        return combo
+    }
+
+    func updateNSView(_ combo: NSComboBox, context: Context) {
+        context.coordinator.values = values
+        context.coordinator.selection = $selection
+        if let index = values.firstIndex(of: selection), combo.indexOfSelectedItem != index {
+            combo.selectItem(at: index)
+        }
     }
 }

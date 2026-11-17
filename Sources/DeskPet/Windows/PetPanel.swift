@@ -8,8 +8,8 @@ final class PetPanel: NSPanel {
     /// 底部金额区高度（不随缩放变化，保证金额字号恒定）
     static let moneyAreaHeight: CGFloat = 48
     var petScale: CGFloat = 1.0
-    /// 单击（非拖动）宠物时触发，用来唤起设置
-    var onClick: (() -> Void)?
+    /// 单击（非拖动）宠物时触发，参数为内容坐标里的点击点
+    var onClick: ((NSPoint) -> Void)?
 
     static func windowSize(forScale scale: CGFloat) -> NSSize {
         NSSize(
@@ -42,7 +42,7 @@ final class PetPanel: NSPanel {
         isReleasedWhenClosed = false
 
         let container = DragContainerView(frame: rect)
-        container.onClick = { [weak self] in self?.onClick?() }
+        container.onClick = { [weak self] point in self?.onClick?(point) }
         container.autoresizingMask = [.width, .height]
         container.wantsLayer = true
         container.layer?.backgroundColor = NSColor.clear.cgColor
@@ -251,8 +251,8 @@ final class DragContainerView: NSView {
     private var mouseDownLocation: NSPoint = .zero
     private var windowOriginAtMouseDown: NSPoint = .zero
     private var didDrag = false
-    /// 单击（没有拖动）时触发
-    var onClick: (() -> Void)?
+    /// 单击（没有拖动）时触发，参数是点击点在窗口内容坐标里的位置
+    var onClick: ((NSPoint) -> Void)?
 
     /// 让所有点击都落到容器上，避免被 NSHostingView 吃掉。
     override func hitTest(_ point: NSPoint) -> NSView? { self }
@@ -281,7 +281,7 @@ final class DragContainerView: NSView {
             panel.snapToNearestEdge()
             panel.persistPosition()
         } else {
-            onClick?()
+            onClick?(convert(event.locationInWindow, from: nil))
         }
     }
 

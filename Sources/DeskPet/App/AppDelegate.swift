@@ -55,9 +55,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panel?.setRotationEnabled(enabled)
         }
 
-        // 单击宠物 = 打开设置（与菜单栏入口一致）
-        panel.onClick = { [weak settingsWindow] in
-            settingsWindow?.show()
+        // 单击宠物 = 弹出与菜单栏相同的菜单（不是直接开设置）
+        panel.onClick = { [weak panel, weak statusBar] point in
+            guard let panel, let contentView = panel.contentView else { return }
+            statusBar?.popUpMenu(at: point, in: contentView)
         }
 
         statusBar.onTogglePause = { [weak earnings] in earnings?.togglePause() }

@@ -856,7 +856,7 @@ sips -g pixelWidth ~/.codex/pets/codepeng/spritesheet.webp   ✅ 能读
 | 宠物大小 | 0.6×–2.0×，用**窗口尺寸**承载（底部中心为锚点向上长），设置面板滑杆调节并持久化 |
 | 空闲轮播 | 每 30 秒换一个动作（work / shy / celebrate / waiting），情绪变化时立刻让位 |
 | 每秒跳动特效 | 金额脉冲 + 浮起的 `+¥0.03`（复用同一图层，不新建） |
-| 单击宠物 | 非拖动点击直接唤起设置窗口，右键仍是原菜单 |
+| 单击宠物 | 非拖动点击弹出**与菜单栏完全相同**的 NSMenu（`menu.popUp`），右键仍是原菜单 |
 
 **关键性能发现：ImageIO 缩略图 API 会偷偷缓存全尺寸解码**
 
@@ -877,3 +877,9 @@ sips -g pixelWidth ~/.codex/pets/codepeng/spritesheet.webp   ✅ 能读
 | 再限制动画缓存为 3 条 | 2.42%（含启动波动） |
 
 轮播的开销主要来自 CA 为每条新轨道重新上传纹理，复用动画对象后下降约 40%。代价是动画对象会持有帧数组，所以缓存上限设为 3 条；轮播开启时内存会到 100–130 MB，关掉并在设置里用单一动作时回到 ~60–90 MB。
+
+### 15.11 设置面板与点击行为（2026-11-17）
+
+- **时间选择改为滚动列表**：macOS 的 SwiftUI 不提供 `.wheel` 样式（编译期即报 `'wheel' is unavailable in macOS`），改用 `NSViewRepresentable` 包一个可滚动的 `NSComboBox`：上班/下班各一组「小时（24 项）: 分钟（12 项，5 分钟刻度）」。
+- **单击宠物 = 弹出菜单栏那份菜单**：`DragContainerView` 区分拖动与点击，点击时把内容坐标交给 `StatusBarController.popUpMenu(at:in:)`，直接 `menu.popUp(positioning:at:in:)` 弹出同一个 `NSMenu` 实例，因此两个入口的菜单项永远一致（含宠物子菜单与实时到账标题）。
+- **自检**：`--self-check-ui` 新增两条断言 —— 设置面板可渲染（10,171 像素）、时间选择器就位（`[12, 12, 24, 24]` 项）。

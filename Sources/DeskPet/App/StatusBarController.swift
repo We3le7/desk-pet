@@ -157,6 +157,12 @@ final class StatusBarController: NSObject {
         panel?.resetPosition(nil)
     }
 
+    /// 在指定视图的坐标点弹出**与菜单栏完全相同**的菜单。
+    func popUpMenu(at point: NSPoint, in view: NSView) {
+        guard let menu = statusItem.menu else { return }
+        menu.popUp(positioning: nil, at: point, in: view)
+    }
+
     /// 重建宠物列表子菜单。
     func rebuildPetSubmenu(packs: [PetPackDescriptor], selectedID: String?) {
         petSubmenu.removeAllItems()

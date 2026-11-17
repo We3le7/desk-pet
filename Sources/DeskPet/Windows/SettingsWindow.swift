@@ -22,7 +22,7 @@ final class SettingsWindowController {
 
     private func makeWindow() -> NSWindow {
         let hosting = NSHostingView(rootView: SettingsView(controller: controller, appearance: appearance))
-        hosting.frame = NSRect(x: 0, y: 0, width: 380, height: 520)
+        hosting.frame = NSRect(x: 0, y: 0, width: 400, height: 620)
 
         let window = NSWindow(
             contentRect: hosting.bounds,
