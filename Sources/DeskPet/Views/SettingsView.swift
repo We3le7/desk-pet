@@ -32,13 +32,44 @@ struct EarningsSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
-                row("税后月薪", unit: "元") { numberField(doubleBinding(\.monthlyNet), width: 88) }
-                row("月均工作日", unit: "天") { numberField(doubleBinding(\.workdaysPerMonth), width: 88) }
-                row("每日工时", unit: "小时") { numberField(doubleBinding(\.hoursPerDay), width: 88) }
-                row("年终额外月数", unit: "月") { numberField(doubleBinding(\.extraMonthsPerYear), width: 88) }
+                // 唯一保留的输入框，改成 AppKit 控件（SwiftUI 输入框会被 5Hz 刷新冲掉）
+                row("税后月薪", unit: "元") {
+                    MoneyTextField(value: doubleBinding(\.monthlyNet), width: 110)
+                }
+                row("月均工作日", unit: "天") {
+                    ScrollingValuePicker(
+                        values: steps(from: 20, through: 31, by: 0.25),
+                        label: { String(format: "%.2f", $0) },
+                        selection: doubleBinding(\.workdaysPerMonth),
+                        width: 88
+                    )
+                }
+                row("每日工时", unit: "小时") {
+                    ScrollingValuePicker(
+                        values: steps(from: 4, through: 14, by: 0.5),
+                        label: { String(format: "%.1f", $0) },
+                        selection: doubleBinding(\.hoursPerDay),
+                        width: 88
+                    )
+                }
+                row("年终额外月数", unit: "月") {
+                    ScrollingValuePicker(
+                        values: steps(from: 0, through: 6, by: 0.5),
+                        label: { String(format: "%.1f", $0) },
+                        selection: doubleBinding(\.extraMonthsPerYear),
+                        width: 88
+                    )
+                }
                 row("上班时间", unit: "") { timeWheels(\.startMinuteOfDay) }
                 row("下班时间", unit: "") { timeWheels(\.endMinuteOfDay) }
-                row("午休扣除", unit: "分钟") { numberField(intBinding(\.lunchBreakMinutes), width: 88) }
+                row("午休扣除", unit: "分钟") {
+                    ScrollingValuePicker(
+                        values: steps(from: 0, through: 180, by: 15),
+                        label: { String(format: "%.0f", $0) },
+                        selection: intFromDoubleBinding(\.lunchBreakMinutes),
+                        width: 88
+                    )
+                }
             }
 
             Divider()
@@ -91,39 +122,65 @@ struct EarningsSettingsView: View {
 
     private func timeWheels(_ keyPath: WritableKeyPath<SalaryConfig, Int>) -> some View {
         HStack(spacing: 3) {
-            ScrollingNumberPicker(values: Array(0..<24), selection: hourBinding(keyPath), width: 58)
+            ScrollingValuePicker(
+                values: steps(from: 0, through: 23, by: 1),
+                label: { String(format: "%02.0f", $0) },
+                selection: hourDoubleBinding(keyPath),
+                width: 58
+            )
             Text(":")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.secondary)
-            ScrollingNumberPicker(values: Array(stride(from: 0, to: 60, by: 5)), selection: minuteBinding(keyPath), width: 58)
+            ScrollingValuePicker(
+                values: steps(from: 0, through: 55, by: 5),
+                label: { String(format: "%02.0f", $0) },
+                selection: minuteDoubleBinding(keyPath),
+                width: 58
+            )
         }
     }
 
-    private func numberField(_ binding: Binding<Double>, width: CGFloat) -> some View {
-        TextField("", value: binding, format: .number.precision(.fractionLength(0...2)))
-            .textFieldStyle(.roundedBorder)
-            .frame(width: width)
-            .multilineTextAlignment(.trailing)
+    private func hourDoubleBinding(_ keyPath: WritableKeyPath<SalaryConfig, Int>) -> Binding<Double> {
+        Binding(
+            get: { Double(controller.config[keyPath: keyPath] / 60) },
+            set: { hour in
+                let minute = controller.config[keyPath: keyPath] % 60
+                controller.config[keyPath: keyPath] = min(max(Int(hour.rounded()), 0), 23) * 60 + minute
+            }
+        )
     }
 
-    private func numberField(_ binding: Binding<Int>, width: CGFloat) -> some View {
-        TextField("", value: binding, format: .number)
-            .textFieldStyle(.roundedBorder)
-            .frame(width: width)
-            .multilineTextAlignment(.trailing)
+    private func minuteDoubleBinding(_ keyPath: WritableKeyPath<SalaryConfig, Int>) -> Binding<Double> {
+        Binding(
+            get: { Double(controller.config[keyPath: keyPath] % 60) },
+            set: { minute in
+                let hour = controller.config[keyPath: keyPath] / 60
+                controller.config[keyPath: keyPath] = hour * 60 + min(max(Int(minute.rounded()), 0), 55)
+            }
+        )
+    }
+
+    private func steps(from start: Double, through end: Double, by step: Double) -> [Double] {
+        var values: [Double] = []
+        var value = start
+        while value <= end + 0.0001 {
+            values.append((value * 100).rounded() / 100)
+            value += step
+        }
+        return values
+    }
+
+    private func intFromDoubleBinding(_ keyPath: WritableKeyPath<SalaryConfig, Int>) -> Binding<Double> {
+        Binding(
+            get: { Double(controller.config[keyPath: keyPath]) },
+            set: { controller.config[keyPath: keyPath] = Int($0.rounded()) }
+        )
     }
 
     private func doubleBinding(_ keyPath: WritableKeyPath<SalaryConfig, Double>) -> Binding<Double> {
         Binding(
             get: { controller.config[keyPath: keyPath] },
             set: { controller.config[keyPath: keyPath] = $0 }
-        )
-    }
-
-    private func intBinding(_ keyPath: WritableKeyPath<SalaryConfig, Int>) -> Binding<Int> {
-        Binding(
-            get: { controller.config[keyPath: keyPath] },
-            set: { controller.config[keyPath: keyPath] = max($0, 0) }
         )
     }
 

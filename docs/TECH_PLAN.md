@@ -924,3 +924,19 @@ sips -g pixelWidth ~/.codex/pets/codepeng/spritesheet.webp   ✅ 能读
 | 午休扣完不出现负数 | ✅ |
 | 选择器显示 08:15 / 17:45 | ✅ |
 | 改完写入 UserDefaults，重建 controller 能读回 | ✅ |
+
+### 15.14 输入框无法输入的原因与修法（2026-11-18）
+
+**症状**：上班鼓励器设置页里，输入框点进去打不出字。
+
+**根因**：`SettingsView` 观察的 `EarningsController` 每 200ms（5Hz）publish 一次金额，SwiftUI 因此每秒重建表单 5 次 —— 刚敲进去的字符被下一次重建冲掉。这是"输入框失灵"而不是 AppKit 焦点问题。
+
+**修法（三层）**
+
+| 层 | 改动 |
+| --- | --- |
+| 发布频率 | 标签仍按 5Hz 直接改 `CATextLayer`；但 `amount` 只在**整秒变化**时才 `publish`，设置页重建从 5Hz 降到 1Hz（CPU 2.95% → 1.27%） |
+| 输入控件 | 金额输入框改用 AppKit `NSTextField`（`MoneyTextField`），SwiftUI 重建不会销毁控件；编辑中不覆盖内容，回车/失焦才提交，支持 `¥` 与千分位 |
+| 其余字段 | 按需求全部改为**滚动选择器**（`ScrollingValuePicker`）：月均工作日 20–31（0.25 步长）、每日工时 4–14（0.5）、年终月数 0–6（0.5）、午休 0–180（15）、上下班时间小时/分钟滑轮 |
+
+**新增断言**：`MoneyFormat.parse` 7 项（纯数字 / 千分位 / 货币符号 / 空格小数 / 非数字 / 负数 / 空串）；ui-check 增加"金额输入框就位（1 个可编辑 NSTextField）"，并把时间选择器断言改为按项数过滤（2×24 + 2×12）。

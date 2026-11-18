@@ -164,6 +164,19 @@ public enum MoneyFormat {
         return "\(negative ? "-" : "")¥\(grouped).\(String(format: "%02d", fraction))"
     }
 
+    /// 解析用户输入的金额：允许 ¥、千分位逗号、前后空格
+    public static func parse(_ text: String) -> Double? {
+        let cleaned = text
+            .replacingOccurrences(of: "¥", with: "")
+            .replacingOccurrences(of: ",", with: "")
+            .replacingOccurrences(of: "，", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty, let value = Double(cleaned), value.isFinite, value >= 0 else {
+            return nil
+        }
+        return value
+    }
+
     /// 每秒到账：低于 0.1 元时给三位小数，否则两位
     public static func perSecond(_ value: Double) -> String {
         if value < 0.1 {

@@ -196,8 +196,10 @@ func runUISelfCheck() -> Int32 {
     }
 
     // 时间选择器：上班/下班各一组，每组小时 24 项 + 分钟 12 项
-    if earningsTab.comboItemCounts.sorted() == [12, 12, 24, 24] {
-        print("  ok   时间选择器就位（\(earningsTab.comboItemCounts.sorted()) 项）")
+    let hourPickers = earningsTab.comboItemCounts.filter { $0 == 24 }.count
+    let minutePickers = earningsTab.comboItemCounts.filter { $0 == 12 }.count
+    if hourPickers == 2, minutePickers == 2 {
+        print("  ok   时间选择器就位（2 个小时滑轮 24 项 / 2 个分钟滑轮 12 项）")
     } else {
         print("  FAIL 时间选择器异常（发现 \(earningsTab.comboItemCounts)）")
         failures += 1
@@ -205,10 +207,16 @@ func runUISelfCheck() -> Int32 {
 
     // 时间选择器显示的是否就是配置里的时间
     let timeCheck = checkTimePickerValues()
-    if timeCheck.shown == ["08", "15", "17", "45"] {
+    if timeCheck.shown.containsSubsequence(["08", "15", "17", "45"]) {
         print("  ok   时间选择器显示配置值（08:15 / 17:45）")
     } else {
         print("  FAIL 时间选择器显示异常（\(timeCheck.shown)）")
+        failures += 1
+    }
+    if timeCheck.moneyFieldCount == 1 {
+        print("  ok   金额输入框就位（1 个 AppKit 输入框）")
+    } else {
+        print("  FAIL 金额输入框数量异常（\(timeCheck.moneyFieldCount)）")
         failures += 1
     }
     if timeCheck.persisted == "08:15-17:45" {
@@ -588,7 +596,7 @@ func renderEmptyMoneyBand() -> Int {
 
 /// 渲染「上班鼓励器」页，读出四个时间选择器当前显示的小时/分钟。
 @MainActor
-func checkTimePickerValues() -> (shown: [String], persisted: String) {
+func checkTimePickerValues() -> (shown: [String], persisted: String, moneyFieldCount: Int) {
     let defaults = UserDefaults(suiteName: "deskpet.selftest.time") ?? .standard
     defaults.removePersistentDomain(forName: "deskpet.selftest.time")
 
@@ -604,11 +612,36 @@ func checkTimePickerValues() -> (shown: [String], persisted: String) {
 
     let combos = collectComboBoxes(in: hosting)
     let shown = combos.map(\.stringValue)
+    // NSComboBox 内部也含一个不可编辑的 NSTextField，所以只数可编辑的
+    let moneyFieldCount = countEditableTextFields(in: hosting)
 
     // 重新构造一个 controller（相当于重启 app），确认时间从 UserDefaults 读回来
     let reloaded = EarningsController(defaults: defaults).config
     let persisted = String(format: "%02d:%02d-%02d:%02d",
                            reloaded.startMinuteOfDay / 60, reloaded.startMinuteOfDay % 60,
                            reloaded.endMinuteOfDay / 60, reloaded.endMinuteOfDay % 60)
-    return (shown, persisted)
+    return (shown, persisted, moneyFieldCount)
+}
+
+
+extension Array where Element == String {
+    /// 判断是否按顺序包含给定子序列
+    func containsSubsequence(_ pattern: [String]) -> Bool {
+        guard !pattern.isEmpty else { return true }
+        var matched = 0
+        for element in self where element == pattern[matched] {
+            matched += 1
+            if matched == pattern.count { return true }
+        }
+        return false
+    }
+}
+
+
+func countEditableTextFields(in view: NSView) -> Int {
+    var count = ((view as? NSTextField)?.isEditable == true) ? 1 : 0
+    for subview in view.subviews {
+        count += countEditableTextFields(in: subview)
+    }
+    return count
 }

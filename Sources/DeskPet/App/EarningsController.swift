@@ -20,7 +20,7 @@ final class EarningsController: ObservableObject {
             }
             engine.config = config
             persistConfig()
-            recompute(notify: false)
+            recompute(notify: false, forcePublish: true)
         }
     }
 
@@ -50,7 +50,7 @@ final class EarningsController: ObservableObject {
     func bind(panel: PetPanel) {
         self.panel = panel
         applyVisibility()
-        updateLabel()
+        updateLabel(amount: amount)
     }
 
     func start() {
@@ -74,7 +74,7 @@ final class EarningsController: ObservableObject {
         let now = Date()
         engine.togglePause(at: now)
         isPaused = engine.isPaused
-        recompute(notify: false)
+        recompute(notify: false, forcePublish: true)
     }
 
     func toggleMoneyVisibility() {
@@ -83,51 +83,61 @@ final class EarningsController: ObservableObject {
 
     // MARK: - 刷新
 
-    private func recompute(notify: Bool) {
+    private func recompute(notify: Bool, forcePublish: Bool = false) {
         let now = Date()
         let next = engine.amount(at: now)
         let previous = amount
 
-        amount = next
-        isPaused = next.isPaused
-        updateLabel()
+        // 标签按 5Hz 直接改 CATextLayer，不走 SwiftUI
+        updateLabel(amount: next)
 
-        // 每秒一次的跳动特效
         let second = Int(now.timeIntervalSince1970)
-        if second != lastTickSecond {
-            let delta = next.total - lastTotalAtSecond
-            lastTickSecond = second
-            lastTotalAtSecond = next.total
-            if delta > 0, !next.isPaused, isMoneyVisible,
-               ProcessInfo.processInfo.environment["DESKPET_NO_TICK"] != "1" {
-                panel?.playMoneyTick(delta: delta)
-                if ProcessInfo.processInfo.environment["DESKPET_DEBUG"] == "1" {
-                    print("[money] +\(String(format: "%.4f", delta)) → \(MoneyFormat.yuan(next.total))")
-                    fflush(stdout)
-                }
-            }
+        let secondChanged = second != lastTickSecond
+
+        // 只在整秒变化时才 publish：否则 SwiftUI 设置页每秒重建 5 次，
+        // 输入框和选择器的编辑状态会被冲掉。
+        if secondChanged || forcePublish {
+            amount = next
+        }
+        if isPaused != next.isPaused {
+            isPaused = next.isPaused
         }
 
-        guard notify, next.total > previous.total + 0.0001 else { return }
+        guard secondChanged else { return }
+
+        let delta = next.total - lastTotalAtSecond
+        lastTickSecond = second
+        lastTotalAtSecond = next.total
+        guard notify, delta > 0, !next.isPaused, isMoneyVisible,
+              ProcessInfo.processInfo.environment["DESKPET_NO_TICK"] != "1"
+        else { return }
+
+        panel?.playMoneyTick(delta: delta)
+        if ProcessInfo.processInfo.environment["DESKPET_DEBUG"] == "1" {
+            print("[money] +\(String(format: "%.4f", delta)) → \(MoneyFormat.yuan(next.total))")
+            fflush(stdout)
+        }
+
+        guard next.total > previous.total + 0.0001 else { return }
         let milestones = tracker.crossed(from: previous.total, to: next.total)
         guard let last = milestones.last else { return }
         let isBig = milestones.count > 1 || tracker.isBig(last)
         onMilestone?(last, isBig)
     }
 
-    private func updateLabel() {
+    private func updateLabel(amount value: EarningsAmount) {
         let text: String
-        if isPaused {
-            text = MoneyFormat.yuan(amount.total) + " · 暂停"
+        if value.isPaused {
+            text = MoneyFormat.yuan(value.total) + " · 暂停"
         } else {
-            text = MoneyFormat.yuan(amount.total)
+            text = MoneyFormat.yuan(value.total)
         }
         panel?.setMoneyText(isMoneyVisible ? text : "***")
     }
 
     private func applyVisibility() {
         panel?.setMoneyVisible(isMoneyVisible)
-        updateLabel()
+        updateLabel(amount: amount)
     }
 
     // MARK: - 持久化

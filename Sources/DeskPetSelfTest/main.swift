@@ -289,6 +289,16 @@ let lunch = EarningsEngine(config: SalaryConfig(lunchBreakMinutes: 90))
 let early = lunch.workedSecondsToday(at: day(2026, 11, 18, 10, 0), calendar: calendar2)
 expectEqual(early, 0, "上班半小时内扣完午休仍为 0")
 
+print("MoneyFormat.parse")
+
+expectEqual(MoneyFormat.parse("21000"), 21000, "纯数字")
+expectEqual(MoneyFormat.parse("21,000"), 21000, "带千分位逗号")
+expectEqual(MoneyFormat.parse("¥21,000"), 21000, "带货币符号")
+expectEqual(MoneyFormat.parse(" 21000.5 "), 21000.5, "带空格与小数")
+expect(MoneyFormat.parse("abc") == nil, "非数字返回 nil")
+expect(MoneyFormat.parse("-5") == nil, "负数返回 nil")
+expect(MoneyFormat.parse("") == nil, "空串返回 nil")
+
 // MARK: - 汇总
 
 print("")
