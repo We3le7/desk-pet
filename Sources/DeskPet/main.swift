@@ -612,8 +612,9 @@ func checkTimePickerValues() -> (shown: [String], persisted: String, moneyFieldC
 
     let combos = collectComboBoxes(in: hosting)
     let shown = combos.map(\.stringValue)
-    // NSComboBox 内部也含一个不可编辑的 NSTextField，所以只数可编辑的
-    let moneyFieldCount = countEditableTextFields(in: hosting)
+    // 现在滑轮也允许键入，NSComboBox 内部的可编辑 field 会被一并数到，
+    // 所以只数我们自己的输入框类型
+    let moneyFieldCount = collectViews(in: hosting, ofType: FirstMouseTextField.self)
 
     // 重新构造一个 controller（相当于重启 app），确认时间从 UserDefaults 读回来
     let reloaded = EarningsController(defaults: defaults).config

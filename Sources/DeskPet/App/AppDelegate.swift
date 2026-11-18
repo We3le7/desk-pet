@@ -85,6 +85,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         hotKey?.register()
 
+        if ProcessInfo.processInfo.environment["DESKPET_CHECK_INPUT"] == "1" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak settingsWindow] in
+                settingsWindow?.show(tab: .earnings)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                    settingsWindow?.diagnoseKeyboardFocus()
+                }
+            }
+        }
+
         if let tabEnv = ProcessInfo.processInfo.environment["DESKPET_OPEN_SETTINGS"] {
             let tab: SettingsTab = tabEnv == "earnings" ? .earnings : .pet
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak settingsWindow] in

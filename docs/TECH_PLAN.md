@@ -940,3 +940,28 @@ sips -g pixelWidth ~/.codex/pets/codepeng/spritesheet.webp   ✅ 能读
 | 其余字段 | 按需求全部改为**滚动选择器**（`ScrollingValuePicker`）：月均工作日 20–31（0.25 步长）、每日工时 4–14（0.5）、年终月数 0–6（0.5）、午休 0–180（15）、上下班时间小时/分钟滑轮 |
 
 **新增断言**：`MoneyFormat.parse` 7 项（纯数字 / 千分位 / 货币符号 / 空格小数 / 非数字 / 负数 / 空串）；ui-check 增加"金额输入框就位（1 个可编辑 NSTextField）"，并把时间选择器断言改为按项数过滤（2×24 + 2×12）。
+
+### 15.15 「点了不能打字」的定位与修复（2026-11-18）
+
+用 `DESKPET_CHECK_INPUT=1` 做了一次进程内诊断（打开设置页后打印焦点状态、命中测试、控件实例稳定性、模拟键入）：
+
+| 检查 | 结果 |
+| --- | --- |
+| `NSApp.isActive` / `window.isKeyWindow` | true / true |
+| 输入框可编辑、可选中、启用 | true / true / true |
+| `makeFirstResponder` 后能否拿到 field editor | ✅ |
+| 模拟键入 5 位数字 | ✅ 内容正确 |
+| 2.5 秒后（跨多次 1Hz 刷新）同一实例、仍编辑中 | ✅ 内容未被覆盖 |
+| 滑轮下拉选择 → 配置更新 | ✅ 21.00 → 20.50 |
+
+结论：**控件与刷新逻辑都没问题**，剩下的最可能是 macOS 的"首次点击只激活窗口"行为 —— app 未激活时，第一下点击不会落到输入框上，用户接着打字就毫无反应。
+
+对应修复：
+
+| 修复 | 说明 |
+| --- | --- |
+| `acceptsFirstMouse = true` | 自定义 `FirstMouseTextField` / `FirstMouseComboBox`，第一下点击直接聚焦/展开 |
+| 打开金额页自动聚焦 | `show(tab: .earnings)` 后把第一响应者设到金额输入框 |
+| 点进金额框自动全选 | 直接敲数字覆盖旧值 |
+| 滑轮也允许键入 | `isEditable = true`，提交时解析并吸附到最近刻度（如 22.07 → 22.00），回车生效 |
+| 编辑中不覆盖 | `updateNSView` 同时判断 `currentEditor() != nil`，避免 1Hz 刷新冲掉输入 |
