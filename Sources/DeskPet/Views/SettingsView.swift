@@ -156,9 +156,14 @@ struct EarningsSettingsView: View {
 struct PetSettingsView: View {
     @ObservedObject var appearance: AppearanceStore
     @ObservedObject var catalog: PetsCatalog
+    @ObservedObject private var preview = PetPreviewStore.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
+            previewPane
+
+            Divider()
+
             Toggle("在桌面上显示宠物", isOn: Binding(
                 get: { appearance.isPetVisible },
                 set: { appearance.isPetVisible = $0 }
@@ -206,9 +211,9 @@ struct PetSettingsView: View {
                 .foregroundColor(.secondary)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 4) {
                     packRow(
-                        id: nil,
+                        id: PetThumbnail.builtinKey,
                         title: "内置（代码绘制）",
                         detail: "不需要素材，任何机器上都有",
                         selected: catalog.selectedID == nil
@@ -223,7 +228,7 @@ struct PetSettingsView: View {
                     }
                 }
             }
-            .frame(maxHeight: 230)
+            .frame(maxHeight: 190)
 
             if catalog.packs.isEmpty {
                 Text("没有发现宠物包，可放到 ~/.dsh/pets 或 ~/.codex/pets。")
@@ -233,21 +238,92 @@ struct PetSettingsView: View {
 
             Spacer(minLength: 0)
         }
+        .onAppear {
+            preview.loadThumbnails(for: catalog.packs)
+        }
+        .onChange(of: catalog.packs.count) { _ in
+            preview.loadThumbnails(for: catalog.packs)
+        }
+    }
+
+    // MARK: - 预览
+
+    private var previewPack: PetPack? {
+        guard let hovered = preview.hoveredID else { return catalog.currentPack }
+        if hovered == PetThumbnail.builtinKey { return nil }
+        return catalog.packs.first { $0.id == hovered }
+    }
+
+    private var previewName: String {
+        guard let hovered = preview.hoveredID else { return catalog.selectedName }
+        if hovered == PetThumbnail.builtinKey { return "内置（代码绘制）" }
+        return catalog.packs.first { $0.id == hovered }?.displayName ?? hovered
+    }
+
+    private var previewDetail: String {
+        if let hovered = preview.hoveredID, hovered != PetThumbnail.builtinKey,
+           let pack = catalog.packs.first(where: { $0.id == hovered }) {
+            return "\(pack.tracks.count) 条轨道 · \(pack.license ?? "无许可声明")"
+        }
+        if preview.hoveredID == PetThumbnail.builtinKey {
+            return "代码绘制，无外部素材"
+        }
+        if let pack = catalog.currentPack {
+            return "\(pack.tracks.count) 条轨道 · \(pack.license ?? "无许可声明")"
+        }
+        return "代码绘制，无外部素材"
+    }
+
+    private var previewPane: some View {
+        HStack(alignment: .center, spacing: 14) {
+            PetPreviewView(pack: previewPack)
+                .frame(width: 104, height: 136)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.primary.opacity(0.06))
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                )
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(previewName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                Text(previewDetail)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                Text("悬停列表中的宠物即可预览形象")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .padding(.top, 2)
+            }
+            Spacer(minLength: 0)
+        }
     }
 
     private func packRow(id: String?, title: String, detail: String, selected: Bool) -> some View {
         Button {
-            catalog.select(id)
+            if id == PetThumbnail.builtinKey {
+                catalog.select(nil)
+            } else {
+                catalog.select(id)
+            }
         } label: {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
-                    .foregroundColor(selected ? .accentColor : .secondary)
-                    .font(.system(size: 12))
+            HStack(alignment: .center, spacing: 8) {
+                thumbnail(for: id)
+                    .frame(width: 26, height: 34)
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(.system(size: 12, weight: selected ? .semibold : .regular))
                     Text(detail).font(.system(size: 10)).foregroundColor(.secondary)
                 }
                 Spacer(minLength: 0)
+                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
+                    .foregroundColor(selected ? .accentColor : .secondary)
+                    .font(.system(size: 12))
             }
             .padding(.vertical, 4)
             .padding(.horizontal, 8)
@@ -256,8 +332,25 @@ struct PetSettingsView: View {
                 RoundedRectangle(cornerRadius: 7)
                     .fill(selected ? Color.accentColor.opacity(0.12) : Color.clear)
             )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { hovering in
+            preview.hoveredID = hovering ? (id ?? PetThumbnail.builtinKey) : nil
+        }
+    }
+
+    @ViewBuilder
+    private func thumbnail(for id: String?) -> some View {
+        if let image = preview.thumbnail(for: id) {
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+        } else {
+            RoundedRectangle(cornerRadius: 5)
+                .fill(Color.primary.opacity(0.08))
+        }
     }
 }
 

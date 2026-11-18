@@ -217,6 +217,18 @@ func runUISelfCheck() -> Int32 {
         print("  FAIL 宠物标签页缺少大小滑杆")
         failures += 1
     }
+    if petTab.previewCount >= 1 {
+        print("  ok   预览区就位（\(petTab.previewCount) 个动态预览视图）")
+    } else {
+        print("  FAIL 预览区缺失")
+        failures += 1
+    }
+    if petTab.thumbnailCount >= 2 {
+        print("  ok   缩略图已生成（\(petTab.thumbnailCount) 张，含内置宠物）")
+    } else {
+        print("  FAIL 缩略图没生成（\(petTab.thumbnailCount) 张）")
+        failures += 1
+    }
     if petTab.packRowCount >= 2 {
         print("  ok   皮肤列表就位（\(petTab.packRowCount) 行，含内置宠物）")
     } else {
@@ -450,14 +462,16 @@ func pixelStats(of image: CGImage) -> (opaqueRatio: Double, color: (Double, Doub
 
 /// 离屏渲染设置面板，确认表单能正常布局出内容。
 @MainActor
-func renderSettingsPanel(tab: SettingsTab) -> (pixels: Int, comboItemCounts: [Int], sliderCount: Int, packRowCount: Int) {
+func renderSettingsPanel(tab: SettingsTab) -> (pixels: Int, comboItemCounts: [Int], sliderCount: Int, packRowCount: Int, previewCount: Int, thumbnailCount: Int) {
     let controller = EarningsController()
     let appearance = AppearanceStore()
     let catalog = PetsCatalog()
     if tab == .pet {
-        // 让宠物包列表真的加载出来，才能验证皮肤行
+        // 让宠物包列表与缩略图都加载出来，才能验证皮肤行与预览
         catalog.reload()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.9))
+        PetPreviewStore.shared.loadThumbnails(for: catalog.packs)
+        RunLoop.current.run(until: Date().addingTimeInterval(1.2))
     }
     let root: AnyView
     switch tab {
@@ -467,7 +481,7 @@ func renderSettingsPanel(tab: SettingsTab) -> (pixels: Int, comboItemCounts: [In
         root = AnyView(PetSettingsView(appearance: appearance, catalog: catalog))
     }
     let hosting = NSHostingView(rootView: root)
-    let size = CGSize(width: 400, height: 560)
+    let size = CGSize(width: 400, height: 580)
     hosting.frame = NSRect(origin: .zero, size: size)
     hosting.layoutSubtreeIfNeeded()
 
@@ -481,14 +495,14 @@ func renderSettingsPanel(tab: SettingsTab) -> (pixels: Int, comboItemCounts: [In
         data: nil, width: width, height: height, bitsPerComponent: 8,
         bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
         bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
-    ) else { return (0, [], 0, 0) }
+    ) else { return (0, [], 0, 0, 0, 0) }
 
     // 目录色（catalog color）不能直接取分量，先转到 sRGB
     let background = NSColor.windowBackgroundColor.usingColorSpace(.sRGB) ?? NSColor.white
     context.setFillColor(background.cgColor)
     context.fill(CGRect(x: 0, y: 0, width: width, height: height))
     hosting.layer?.render(in: context)
-    guard let data = context.data else { return (0, [], 0, 0) }
+    guard let data = context.data else { return (0, [], 0, 0, 0, 0) }
 
     let buffer = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
     var differing = 0
@@ -500,7 +514,9 @@ func renderSettingsPanel(tab: SettingsTab) -> (pixels: Int, comboItemCounts: [In
     let sliderCount = collectViews(in: hosting, ofType: NSSlider.self)
     // 皮肤行是 SwiftUI Button，无法从 AppKit 视图树数出来，改用目录行数 + 像素双重校验
     let packRowCount = tab == .pet ? (catalog.packs.count + 1) : 0
-    return (differing, itemCounts, sliderCount, packRowCount)
+    let previewCount = collectViews(in: hosting, ofType: PetDisplayView.self)
+    let thumbnailCount = tab == .pet ? PetPreviewStore.shared.thumbnails.count : 0
+    return (differing, itemCounts, sliderCount, packRowCount, previewCount, thumbnailCount)
 }
 
 @MainActor

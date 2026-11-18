@@ -25,6 +25,8 @@ final class PetDisplayView: NSView {
         return text
     }()
     private var moneyLayersReady = false
+    /// 预览场景不需要预留金额区
+    var reservesMoneyArea = true
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -42,7 +44,7 @@ final class PetDisplayView: NSView {
     override func layout() {
         super.layout()
         // 宠物区在金额区之上，两者不再重叠
-        let moneyHeight = PetPanel.moneyAreaHeight
+        let moneyHeight = reservesMoneyArea ? PetPanel.moneyAreaHeight : 0
         let petArea = CGRect(
             x: 0,
             y: moneyHeight,
@@ -93,6 +95,8 @@ final class PetDisplayView: NSView {
     }
 
     func setPack(_ pack: PetPack?) {
+        // SwiftUI 每次刷新都会调到这里；同一只宠物不要重复解码
+        guard pack?.id != self.pack?.id else { return }
         self.pack = pack
         frameView.setPack(pack)
         let usingFrames = pack != nil

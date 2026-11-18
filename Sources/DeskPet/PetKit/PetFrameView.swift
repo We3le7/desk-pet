@@ -68,8 +68,11 @@ final class PetFrameView: NSView {
         imageLayer.frame = bounds
         CATransaction.commit()
 
-        // 只有尺寸真的变了才重解码；否则每次 layout 都会重新解一遍
-        guard bounds.size != lastLayoutSize else { return }
+        // 只有尺寸明显变化才重解码；SwiftUI 布局会抖动出很多中间尺寸
+        let previous = lastLayoutSize
+        let widthDelta = previous.width > 1 ? abs(bounds.width - previous.width) / previous.width : 1
+        let heightDelta = previous.height > 1 ? abs(bounds.height - previous.height) / previous.height : 1
+        guard widthDelta > 0.15 || heightDelta > 0.15 else { return }
         lastLayoutSize = bounds.size
         if pack != nil { applyMood(force: true) }
     }

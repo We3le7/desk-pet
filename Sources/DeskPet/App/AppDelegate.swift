@@ -85,6 +85,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         hotKey?.register()
 
+        if let tabEnv = ProcessInfo.processInfo.environment["DESKPET_OPEN_SETTINGS"] {
+            let tab: SettingsTab = tabEnv == "earnings" ? .earnings : .pet
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak settingsWindow] in
+                print("[demo] 打开设置 \(tab)")
+                fflush(stdout)
+                settingsWindow?.show(tab: tab)
+            }
+        }
+
         if ProcessInfo.processInfo.environment["DESKPET_DEMO_COINS"] == "1" {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak panel] in
                 print("[demo] 触发金币动画")

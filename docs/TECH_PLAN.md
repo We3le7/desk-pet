@@ -883,3 +883,23 @@ sips -g pixelWidth ~/.codex/pets/codepeng/spritesheet.webp   ✅ 能读
 - **时间选择改为滚动列表**：macOS 的 SwiftUI 不提供 `.wheel` 样式（编译期即报 `'wheel' is unavailable in macOS`），改用 `NSViewRepresentable` 包一个可滚动的 `NSComboBox`：上班/下班各一组「小时（24 项）: 分钟（12 项，5 分钟刻度）」。
 - **单击宠物 = 弹出菜单栏那份菜单**：`DragContainerView` 区分拖动与点击，点击时把内容坐标交给 `StatusBarController.popUpMenu(at:in:)`，直接 `menu.popUp(positioning:at:in:)` 弹出同一个 `NSMenu` 实例，因此两个入口的菜单项永远一致（含宠物子菜单与实时到账标题）。
 - **自检**：`--self-check-ui` 新增两条断言 —— 设置面板可渲染（10,171 像素）、时间选择器就位（`[12, 12, 24, 24]` 项）。
+
+### 15.12 宠物形象预览（2026-11-18）
+
+设置页「宠物」标签新增两块：
+
+| 元素 | 实现 |
+| --- | --- |
+| 列表缩略图 | 每只宠物解 `idle` 首帧缩到 56×74（`PetThumbnail`），内置宠物用离屏渲染 `PetView` 生成 |
+| 动态预览 | 列表上方 104×136 的 `PetPreviewView`（`NSViewRepresentable` 包 `PetDisplayView`，不预留金额区） |
+| 悬停切换 | 鼠标悬停某一行即预览该宠物，移出恢复为当前选中项 |
+
+**内存治理（这功能差点把 footprint 打到 400 MB）**
+
+| 问题 | 表现 | 修法 |
+| --- | --- | --- |
+| 缩略图重复解码 | ImageIO 缓存 255 MB（4 个图集 × 14 MB × 多轮） | `loadThumbnails` 幂等：已有缩略图的宠物直接跳过 |
+| SwiftUI 反复调 `setPack` | 每次都重新解码整条轨道 | `PetDisplayView.setPack` 按 `id` 去重 |
+| 布局抖动触发重解码 | 一个预览解出几份不同尺寸的帧 | 解码尺寸硬上限 512px；尺寸变化 <15% 不重解码 |
+
+修完后：常规运行 ~113 MB；打开设置页约 100–120 MB（其中 ImageIO 约 80 MB，来自 4 张 1536×2288 图集的首次解码，一次性、有界）。

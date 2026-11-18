@@ -93,7 +93,8 @@ final class FrameCache {
         let scale = request.scale
         let pixelWidth = max(Int(targetSize.width * scale), 16)
         let pixelHeight = max(Int(targetSize.height * scale), 16)
-        let maxPixel = max(pixelWidth, pixelHeight)
+        // 硬上限：即使是全屏临时布局，也不按那个尺寸解码（否则一帧几个 MB）
+        let maxPixel = min(max(pixelWidth, pixelHeight), 512)
 
         let sheet = request.pack.adapter == .atlas ? loadSheet(request.pack) : nil
 
