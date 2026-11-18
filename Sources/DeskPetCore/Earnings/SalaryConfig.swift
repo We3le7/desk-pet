@@ -53,9 +53,41 @@ public struct SalaryConfig: Sendable, Equatable, Codable {
         return effectiveMonthly / monthSeconds
     }
 
-    /// 在岗窗口的秒数（09:30–19:00 扣午休）
+    /// 在岗窗口的分钟数；下班早于上班视为**跨零点**（夜班），起止相同视为 0
+    public var windowMinutes: Int {
+        let diff = endMinuteOfDay - startMinuteOfDay
+        if diff > 0 { return diff }
+        if diff == 0 { return 0 }
+        return diff + 24 * 60
+    }
+
+    /// 在岗窗口的秒数（扣掉午休）
     public var windowSeconds: Double {
-        max(Double((endMinuteOfDay - startMinuteOfDay) * 60 - lunchBreakMinutes * 60), 60)
+        let minutes = max(windowMinutes - lunchBreakMinutes, 0)
+        return Double(minutes) * 60
+    }
+
+    /// 归一化：分钟对齐到 5 分钟刻度、限制在 0…1439，避免"设置里显示 30、实际按 32 算"。
+    public func normalized() -> SalaryConfig {
+        var copy = self
+        copy.startMinuteOfDay = Self.snap(copy.startMinuteOfDay)
+        copy.endMinuteOfDay = Self.snap(copy.endMinuteOfDay)
+        if copy.monthlyNet.isFinite {
+            copy.monthlyNet = max(copy.monthlyNet, 0)
+        }
+        if copy.hoursPerDay.isFinite {
+            copy.hoursPerDay = min(max(copy.hoursPerDay, 0.5), 24)
+        }
+        if copy.workdaysPerMonth.isFinite {
+            copy.workdaysPerMonth = min(max(copy.workdaysPerMonth, 1), 31)
+        }
+        copy.lunchBreakMinutes = max(copy.lunchBreakMinutes, 0)
+        return copy
+    }
+
+    private static func snap(_ minutes: Int) -> Int {
+        let clamped = min(max(minutes, 0), 23 * 60 + 55)
+        return (Int((Double(clamped) / 5).rounded()) * 5).clamped(to: 0...(23 * 60 + 55))
     }
 
     /// 在岗一整天能赚多少
@@ -70,5 +102,12 @@ public struct SalaryConfig: Sendable, Equatable, Codable {
             format: "每秒 ¥%.3f · 每小时 ¥%.1f · 每天 ¥%.0f",
             perSecond, perHour, perDay
         )
+    }
+}
+
+
+private extension Int {
+    func clamped(to range: ClosedRange<Int>) -> Int {
+        Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
     }
 }

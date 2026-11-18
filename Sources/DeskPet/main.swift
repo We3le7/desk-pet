@@ -203,6 +203,21 @@ func runUISelfCheck() -> Int32 {
         failures += 1
     }
 
+    // 时间选择器显示的是否就是配置里的时间
+    let timeCheck = checkTimePickerValues()
+    if timeCheck.shown == ["08", "15", "17", "45"] {
+        print("  ok   时间选择器显示配置值（08:15 / 17:45）")
+    } else {
+        print("  FAIL 时间选择器显示异常（\(timeCheck.shown)）")
+        failures += 1
+    }
+    if timeCheck.persisted == "08:15-17:45" {
+        print("  ok   时间设置已持久化并可重新载入（\(timeCheck.persisted)）")
+    } else {
+        print("  FAIL 时间设置持久化异常（\(timeCheck.persisted)）")
+        failures += 1
+    }
+
     // 宠物标签页：显示开关 / 大小滑杆 / 皮肤列表
     let petTab = renderSettingsPanel(tab: .pet)
     if petTab.pixels < 3000 {
@@ -568,4 +583,32 @@ func renderEmptyMoneyBand() -> Int {
         }
     }
     return opaque
+}
+
+
+/// 渲染「上班鼓励器」页，读出四个时间选择器当前显示的小时/分钟。
+@MainActor
+func checkTimePickerValues() -> (shown: [String], persisted: String) {
+    let defaults = UserDefaults(suiteName: "deskpet.selftest.time") ?? .standard
+    defaults.removePersistentDomain(forName: "deskpet.selftest.time")
+
+    let controller = EarningsController(defaults: defaults)
+    var config = controller.config
+    config.startMinuteOfDay = 8 * 60 + 15
+    config.endMinuteOfDay = 17 * 60 + 45
+    controller.config = config
+
+    let hosting = NSHostingView(rootView: EarningsSettingsView(controller: controller))
+    hosting.frame = NSRect(x: 0, y: 0, width: 400, height: 560)
+    hosting.layoutSubtreeIfNeeded()
+
+    let combos = collectComboBoxes(in: hosting)
+    let shown = combos.map(\.stringValue)
+
+    // 重新构造一个 controller（相当于重启 app），确认时间从 UserDefaults 读回来
+    let reloaded = EarningsController(defaults: defaults).config
+    let persisted = String(format: "%02d:%02d-%02d:%02d",
+                           reloaded.startMinuteOfDay / 60, reloaded.startMinuteOfDay % 60,
+                           reloaded.endMinuteOfDay / 60, reloaded.endMinuteOfDay % 60)
+    return (shown, persisted)
 }

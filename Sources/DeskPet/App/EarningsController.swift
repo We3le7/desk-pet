@@ -13,6 +13,11 @@ final class EarningsController: ObservableObject {
     }
     @Published var config: SalaryConfig {
         didSet {
+            let normalized = config.normalized()
+            if normalized != config {
+                config = normalized
+                return
+            }
             engine.config = config
             persistConfig()
             recompute(notify: false)
@@ -34,7 +39,7 @@ final class EarningsController: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        let loaded = Self.loadConfig(from: defaults)
+        let loaded = Self.loadConfig(from: defaults).normalized()
         self.config = loaded
         self.engine = EarningsEngine(config: loaded)
         self.amount = engine.amount(at: Date())

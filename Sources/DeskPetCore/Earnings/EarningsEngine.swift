@@ -62,7 +62,8 @@ public struct EarningsEngine: Sendable {
         )
     }
 
-    /// 今天已经工作的秒数（工作时段内线性增长，时段外为 0 或封顶）
+    /// 今天已经工作的秒数。
+    /// 支持跨零点班次（22:00–06:00）；不在窗口内返回 0。
     public func workedSecondsToday(at date: Date, calendar: Calendar = .current) -> Double {
         let components = calendar.dateComponents([.weekday, .hour, .minute, .second], from: date)
         guard let weekday = components.weekday, config.weekdays.contains(weekday),
@@ -74,11 +75,26 @@ public struct EarningsEngine: Sendable {
         let nowSeconds = Double(hour * 3600 + minute * 60 + second)
         let startSeconds = Double(config.startMinuteOfDay * 60)
         let endSeconds = Double(config.endMinuteOfDay * 60)
-        guard endSeconds > startSeconds else { return 0 }
+        let windowSeconds = config.windowSeconds
+        guard windowSeconds > 0 else { return 0 }
 
-        let worked = min(max(nowSeconds - startSeconds, 0), endSeconds - startSeconds)
+        // 语义：班前 0 → 班中按已过时间 → 班后封顶为整个窗口（下班后仍应看得到今天的总额）
+        let elapsed: Double
+        if endSeconds > startSeconds {
+            guard nowSeconds >= startSeconds else { return 0 }
+            elapsed = nowSeconds - startSeconds
+        } else {
+            if nowSeconds >= startSeconds {
+                elapsed = nowSeconds - startSeconds
+            } else if nowSeconds < endSeconds {
+                elapsed = nowSeconds + 24 * 3600 - startSeconds
+            } else {
+                elapsed = windowSeconds   // 夜班已结束
+            }
+        }
+
+        let worked = min(max(elapsed, 0), windowSeconds)
         let lunchSeconds = Double(config.lunchBreakMinutes * 60)
-        // 午休从已工作时长里扣，但不会扣成负数
         return max(worked - min(lunchSeconds, worked), 0)
     }
 

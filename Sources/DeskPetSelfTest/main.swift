@@ -252,6 +252,43 @@ expectEqual(MoneyFormat.perSecond(0.0334), "¥0.033/秒", "小额每秒三位小
 expectEqual(MoneyFormat.perSecond(0.0335), "¥0.034/秒", "小额四舍五入到三位")
 expectEqual(MoneyFormat.perSecond(1.2), "¥1.20/秒", "大额每秒两位小数")
 
+// MARK: - 时间设置边界
+
+print("时间设置")
+
+// 分钟必须对齐到 5 分钟刻度（否则"设置里显示 30、实际按 32 算"）
+let odd = SalaryConfig(startMinuteOfDay: 9 * 60 + 32, endMinuteOfDay: 18 * 60 + 58).normalized()
+expectEqual(odd.startMinuteOfDay, 9 * 60 + 30, "上班时间对齐到 5 分钟刻度")
+expectEqual(odd.endMinuteOfDay, 19 * 60, "下班时间对齐到 5 分钟刻度")
+
+let clamped = SalaryConfig(startMinuteOfDay: -30, endMinuteOfDay: 3000).normalized()
+expectEqual(clamped.startMinuteOfDay, 0, "越界时间被夹到 0")
+expect(clamped.endMinuteOfDay <= 23 * 60 + 55, "越界时间被夹到当日上限")
+
+// 跨零点夜班
+let nightEarnings = EarningsEngine(config: SalaryConfig(
+    monthlyNet: 21000,
+    startMinuteOfDay: 22 * 60,
+    endMinuteOfDay: 6 * 60
+))
+expectEqual(nightEarnings.config.windowSeconds, 8 * 3600, "夜班窗口 8 小时")
+expectEqual(nightEarnings.workedSecondsToday(at: day(2026, 11, 18, 23, 0), calendar: calendar2), 3600, "夜班 23:00 已工作 1 小时")
+expectEqual(nightEarnings.workedSecondsToday(at: day(2026, 11, 18, 5, 0), calendar: calendar2), 7 * 3600, "夜班 05:00 已工作 7 小时")
+expectEqual(nightEarnings.workedSecondsToday(at: day(2026, 11, 18, 7, 0), calendar: calendar2), 8 * 3600, "夜班 07:00 已下班，但仍显示整晚总额")
+expectEqual(nightEarnings.workedSecondsToday(at: day(2026, 11, 18, 12, 0), calendar: calendar2), 8 * 3600, "夜班中午仍显示整晚总额")
+expectEqual(nightEarnings.workedSecondsToday(at: day(2026, 11, 18, 21, 0), calendar: calendar2), 8 * 3600, "夜班 21:00 仍显示昨晚整晚（新班次 22:00 才开始）")
+expectEqual(nightEarnings.workedSecondsToday(at: day(2026, 11, 18, 22, 30), calendar: calendar2), 1800, "夜班 22:30 新班次重新计起")
+
+// 起止相同 = 没有在岗窗口
+let zeroWindow = SalaryConfig(startMinuteOfDay: 9 * 60, endMinuteOfDay: 9 * 60)
+expectEqual(zeroWindow.windowSeconds, 0, "起止相同窗口为 0")
+expectEqual(EarningsEngine(config: zeroWindow).workedSecondsToday(at: day(2026, 11, 18, 10, 0), calendar: calendar2), 0, "窗口为 0 时不赚钱")
+
+// 午休扣除后不会为负
+let lunch = EarningsEngine(config: SalaryConfig(lunchBreakMinutes: 90))
+let early = lunch.workedSecondsToday(at: day(2026, 11, 18, 10, 0), calendar: calendar2)
+expectEqual(early, 0, "上班半小时内扣完午休仍为 0")
+
 // MARK: - 汇总
 
 print("")
